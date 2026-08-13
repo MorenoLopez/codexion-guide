@@ -6,7 +6,7 @@ An interactive learning guide and visual simulator focused on C concurrent progr
 
 Access the interactive guide and visual simulator hosted on GitHub Pages:
 
-https://<username>.github.io/<repository-name>/
+<https://morenolopez.github.io/codexion-guide/>
 
 ## Overview
 
