@@ -1,0 +1,1757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codexion Learning Guide — POSIX Threads, Mutexes & Concurrency</title>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border: #30363d;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --success: #3fb950;
+  --warning: #d29922;
+  --danger: #f85149;
+  --purple: #a371f7;
+  --code-bg: #0d1117;
+  --code-border: #30363d;
+  --sidebar-width: 290px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; scroll-padding-top:20px; }
+body {
+  font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+  background:var(--bg-primary);
+  color:var(--text-primary);
+  line-height:1.7;
+  overflow-x:hidden;
+}
+::-webkit-scrollbar { width:10px; }
+::-webkit-scrollbar-track { background:var(--bg-primary); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:5px; }
+::-webkit-scrollbar-thumb:hover { background:var(--text-secondary); }
+.container { display:flex; min-height:100vh; }
+.sidebar {
+  width:var(--sidebar-width);
+  background:var(--bg-secondary);
+  border-right:1px solid var(--border);
+  position:fixed;
+  height:100vh;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:24px 0;
+  z-index:100;
+  transition:width 0.25s ease, transform 0.25s ease;
+  white-space:nowrap;
+}
+.sidebar-header { padding:0 24px 20px; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.sidebar-header h1 { font-size:1.3rem; color:var(--accent); margin-bottom:4px; }
+.sidebar-header p { font-size:0.8rem; color:var(--text-secondary); }
+.nav-section { margin-bottom:8px; }
+.nav-section-title {
+  padding:8px 24px; font-size:0.75rem; text-transform:uppercase;
+  letter-spacing:0.08em; color:var(--text-secondary); font-weight:600;
+}
+.nav-link {
+  display:block; padding:8px 24px 8px 32px; color:var(--text-primary);
+  text-decoration:none; font-size:0.88rem;
+  border-left:3px solid transparent; transition:all 0.2s;
+}
+.nav-link:hover { background:var(--bg-tertiary); color:var(--accent-hover); border-left-color:var(--accent); }
+.nav-link.active { background:var(--bg-tertiary); color:var(--accent); border-left-color:var(--accent); font-weight:500; }
+.main { margin-left:var(--sidebar-width); flex:1; max-width:920px; padding:48px 48px 80px; transition:margin-left 0.25s ease; }
+
+/* Collapsed (desktop) state */
+.sidebar.collapsed { width:0; padding-left:0; padding-right:0; border-right:none; }
+.sidebar.collapsed .sidebar-header,
+.sidebar.collapsed .nav-section { display:none; }
+body.sidebar-collapsed .main { margin-left:0; }
+
+/* Floating toggle button, always on top, works for both desktop collapse and mobile open/close */
+.sidebar-toggle-btn {
+  position:fixed; top:20px; left:20px; z-index:200;
+  background:var(--bg-tertiary); border:1px solid var(--border); color:var(--text-primary);
+  width:38px; height:38px; border-radius:8px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; font-size:1.1rem;
+  transition:all 0.2s, left 0.25s ease;
+}
+.sidebar-toggle-btn:hover { background:var(--accent); color:var(--bg-primary); border-color:var(--accent); }
+.sidebar-toggle-btn.shifted { left:calc(var(--sidebar-width) + 12px); }
+h1 { font-size:2.5rem; margin-bottom:16px; color:var(--text-primary); font-weight:700; letter-spacing:-0.02em; }
+h2 { font-size:1.7rem; margin-top:48px; margin-bottom:20px; color:var(--accent); font-weight:600; padding-bottom:12px; border-bottom:1px solid var(--border); }
+h3 { font-size:1.25rem; margin-top:32px; margin-bottom:12px; color:var(--text-primary); font-weight:600; }
+h4 { font-size:1.05rem; margin-top:24px; margin-bottom:10px; color:var(--warning); font-weight:600; }
+p { margin-bottom:16px; color:var(--text-primary); }
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+pre {
+  background:var(--code-bg); border:1px solid var(--code-border);
+  border-radius:10px; padding:20px; overflow-x:auto; margin:20px 0; position:relative;
+}
+pre::before {
+  content:attr(data-lang); position:absolute; top:8px; right:12px;
+  font-size:0.7rem; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em;
+}
+code { font-family:'JetBrains Mono','Fira Code','Consolas',monospace; font-size:0.85rem; line-height:1.6; }
+pre code { color:#e6edf3; }
+p code, li code, td code { background:var(--bg-tertiary); padding:2px 8px; border-radius:4px; font-size:0.85em; color:var(--accent-hover); }
+.keyword { color:#ff7b72; }
+.string { color:#a5d6ff; }
+.comment { color:#8b949e; font-style:italic; }
+.function { color:#d2a8ff; }
+.number { color:#79c0ff; }
+.type { color:#ffa657; }
+.macro { color:#ff7b72; }
+.info-box {
+  border-radius:10px; padding:20px 24px; margin:24px 0; border-left:4px solid;
+}
+.info-box.tip { background:rgba(47,129,247,0.1); border-color:var(--accent); }
+.info-box.warning { background:rgba(210,153,34,0.1); border-color:var(--warning); }
+.info-box.danger { background:rgba(248,81,73,0.1); border-color:var(--danger); }
+.info-box.success { background:rgba(63,185,80,0.1); border-color:var(--success); }
+.info-box.purple { background:rgba(163,113,247,0.1); border-color:var(--purple); }
+.info-box-title { font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
+.info-box.tip .info-box-title { color:var(--accent); }
+.info-box.warning .info-box-title { color:var(--warning); }
+.info-box.danger .info-box-title { color:var(--danger); }
+.info-box.success .info-box-title { color:var(--success); }
+.info-box.purple .info-box-title { color:var(--purple); }
+ul, ol { margin:16px 0; padding-left:28px; }
+li { margin-bottom:8px; color:var(--text-primary); }
+table { width:100%; border-collapse:collapse; margin:20px 0; border-radius:10px; overflow:hidden; border:1px solid var(--border); }
+th { background:var(--bg-tertiary); padding:12px 16px; text-align:left; font-weight:600; color:var(--accent); border-bottom:1px solid var(--border); }
+td { padding:12px 16px; border-bottom:1px solid var(--border); color:var(--text-primary); }
+tr:hover td { background:var(--bg-tertiary); }
+.hero { text-align:center; padding:40px 0 32px; border-bottom:1px solid var(--border); margin-bottom:40px; }
+.hero h1 { font-size:3rem; background:linear-gradient(135deg,var(--accent),var(--purple)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.hero p { font-size:1.2rem; color:var(--text-secondary); max-width:650px; margin:0 auto; }
+.badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:600; margin:4px; }
+.badge.blue { background:rgba(88,166,255,0.15); color:var(--accent); }
+.badge.green { background:rgba(63,185,80,0.15); color:var(--success); }
+.badge.orange { background:rgba(210,153,34,0.15); color:var(--warning); }
+.badge.purple { background:rgba(163,113,247,0.15); color:var(--purple); }
+.chapter-number { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; background:var(--accent); color:var(--bg-primary); border-radius:50%; font-weight:700; font-size:1rem; margin-right:12px; }
+kbd { background:var(--bg-tertiary); border:1px solid var(--border); border-radius:6px; padding:2px 8px; font-family:monospace; font-size:0.85em; box-shadow:0 2px 0 var(--border); }
+hr { border:none; height:1px; background:var(--border); margin:48px 0; }
+.img-caption { text-align:center; color:var(--text-secondary); font-size:0.85rem; margin-top:8px; margin-bottom:20px; }
+.concept-img { max-width:100%; border-radius:10px; border:1px solid var(--border); display:block; margin:20px auto; }
+section { scroll-margin-top:20px; }
+
+/* Simulator styles */
+.simulator-container { background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:24px; margin:24px 0; }
+.simulator-title { font-size:1.1rem; color:var(--accent); font-weight:600; margin-bottom:16px; }
+.sim-canvas { width:100%; height:320px; background:var(--bg-primary); border-radius:8px; border:1px solid var(--border); position:relative; overflow:hidden; }
+.sim-controls { display:flex; gap:12px; margin-top:16px; flex-wrap:wrap; }
+.sim-btn { background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); padding:8px 16px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.9rem; transition:all 0.2s; }
+.sim-btn:hover { background:var(--accent); color:var(--bg-primary); border-color:var(--accent); }
+.sim-btn.active { background:var(--success); color:var(--bg-primary); border-color:var(--success); }
+.sim-stats { display:flex; gap:24px; margin-top:12px; font-size:0.85rem; color:var(--text-secondary); }
+.sim-stat span { color:var(--text-primary); font-weight:600; }
+
+@media (max-width:1024px) {
+  .sidebar { transform:translateX(-100%); transition:transform 0.3s; }
+  .sidebar.open { transform:translateX(0); }
+  .main { margin-left:0; padding:24px; }
+  .sidebar-toggle-btn.shifted { left:20px; }
+}
+</style>
+</head>
+<body>
+<button class="sidebar-toggle-btn shifted" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="Replier/déplier le menu" title="Replier/déplier le menu">&#9776;</button>
+<div class="container">
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <h1>Codexion Guide</h1>
+    <p>POSIX Threads & Concurrency</p>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-title">Getting Started</div>
+    <a href="#intro" class="nav-link">Introduction</a>
+    <a href="#setup" class="nav-link">Setup & Compilation</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-title">Core Concepts</div>
+    <a href="#ch1" class="nav-link">1. POSIX Threads</a>
+    <a href="#ch2" class="nav-link">2. Mutexes</a>
+    <a href="#ch3" class="nav-link">3. Condition Variables</a>
+    <a href="#ch4" class="nav-link">4. Dining Philosophers</a>
+    <a href="#ch5" class="nav-link">5. Time in C</a>
+    <a href="#ch6" class="nav-link">6. Scheduling: FIFO vs EDF</a>
+    <a href="#ch7" class="nav-link">7. Priority Queue / Heap</a>
+    <a href="#ch8" class="nav-link">8. Monitor Pattern</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-title">Codexion Project</div>
+    <a href="#ch9" class="nav-link">9. Architecture</a>
+    <a href="#ch10" class="nav-link">10. Data Structures</a>
+    <a href="#ch11" class="nav-link">11. Full Implementation</a>
+    <a href="#ch12" class="nav-link">12. Interactive Simulator</a>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-title">Reference</div>
+    <a href="#cheatsheet" class="nav-link">Quick API Reference</a>
+    <a href="#resources" class="nav-link">Resources</a>
+  </div>
+</nav>
+<main class="main">
+<div class="hero">
+  <h1>Codexion Learning Guide</h1>
+  <p>Master POSIX threads, mutexes, condition variables, and real-time scheduling by building a concurrent resource simulator</p>
+  <div style="margin-top:20px;">
+    <span class="badge blue">C89 / C99</span>
+    <span class="badge green">POSIX Threads</span>
+    <span class="badge orange">Concurrency</span>
+    <span class="badge purple">Real-Time Scheduling</span>
+  </div>
+</div>
+
+<section id="intro">
+<h2>Introduction</h2>
+<p><strong>Codexion</strong> is a concurrency challenge that models a real-world resource contention problem. Multiple coders (threads) sit around a shared Quantum Compiler and compete for USB dongles (mutex-protected resources) to compile their code. The simulation must prevent burnout (deadline misses) while fairly arbitrating access to limited resources.</p>
+<p>This guide will teach you every concept you need to build Codexion from scratch:</p>
+<ul>
+<li><strong>POSIX Threads</strong> — Creating and managing concurrent execution flows</li>
+<li><strong>Mutexes</strong> — Protecting shared resources from race conditions</li>
+<li><strong>Condition Variables</strong> — Efficient waiting and signaling between threads</li>
+<li><strong>The Dining Philosophers Problem</strong> — Classic synchronization puzzle</li>
+<li><strong>Real-Time Scheduling</strong> — FIFO and Earliest Deadline First (EDF)</li>
+<li><strong>Priority Queues</strong> — Heap-based scheduling implementation</li>
+<li><strong>Time Management</strong> — Precise timing with <code>gettimeofday</code></li>
+</ul>
+
+<img src="images/coders_circle.png" class="concept-img" alt="Coders and Dongles Layout">
+<p class="img-caption">Figure 1: Coders arranged in a circle around the Quantum Compiler, each needing two adjacent dongles to compile.</p>
+
+<div class="info-box tip">
+<div class="info-box-title">Why Learn This?</div>
+<p>Concurrency is everywhere: operating systems, databases, web servers, game engines. Understanding threads, locks, and scheduling is essential for any systems programmer. Codexion distills these concepts into a tangible, visual problem.</p>
+</div>
+
+<h3>The Problem Statement</h3>
+<ul>
+<li><code>N</code> coders sit in a circle around a Quantum Compiler</li>
+<li>There are <code>N</code> USB dongles on the table — one between each pair of adjacent coders</li>
+<li>Each coder needs <strong>both</strong> their left and right dongle to compile</li>
+<li>After compiling, a coder debugs, then refactors, then compiles again</li>
+<li>Each coder has a <strong>burnout deadline</strong>: if they don't compile within <code>time_to_burnout</code> ms of their last compile, they burn out</li>
+<li>Dongles have a <strong>cooldown</strong>: after being released, they cannot be taken again for <code>dongle_cooldown</code> ms</li>
+<li>Scheduling can be <code>fifo</code> (arrival order) or <code>edf</code> (earliest deadline first)</li>
+<li>A <strong>monitor thread</strong> detects burnout and stops the simulation</li>
+</ul>
+</section>
+
+<section id="setup">
+<h2>Setup & Compilation</h2>
+<p>Since Codexion uses POSIX threads, you need to link against the pthread library:</p>
+<pre data-lang="bash"><code>cc -Wall -Wextra -Werror -pthread codexion.c -o codexion</code></pre>
+<p>The <code>-pthread</code> flag tells the compiler to link the POSIX thread library and set up thread-safe compilation. On macOS, you may need <code>-lpthread</code> instead.</p>
+
+<h3>Required Headers</h3>
+<pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;pthread.h&gt;</span>      <span class="comment">/* Threads, mutexes, condition variables */</span>
+<span class="macro">#include</span> <span class="string">&lt;sys/time.h&gt;</span>     <span class="comment">/* gettimeofday */</span>
+<span class="macro">#include</span> <span class="string">&lt;unistd.h&gt;</span>       <span class="comment">/* usleep */</span>
+<span class="macro">#include</span> <span class="string">&lt;stdio.h&gt;</span>        <span class="comment">/* printf */</span>
+<span class="macro">#include</span> <span class="string">&lt;stdlib.h&gt;</span>       <span class="comment">/* malloc, free, atoi */</span>
+<span class="macro">#include</span> <span class="string">&lt;string.h&gt;</span>       <span class="comment">/* memset */</span></code></pre>
+
+<div class="info-box warning">
+<div class="info-box-title">C89 Compatibility</div>
+<p>The project requires C89, which means: declare all variables at the top of a block, no <code>//</code> comments (use <code>/* */</code>), no mixed declarations and code, and no variable-length arrays.</p>
+</div>
+</section>
+
+<hr>
+
+<section id="ch1">
+<h2><span class="chapter-number">1</span>POSIX Threads</h2>
+<p>A <strong>thread</strong> is an independent execution flow within a process. While a process has its own memory space, threads within the same process share that memory. This makes threads lightweight but requires synchronization to prevent conflicts.</p>
+
+<img src="images/thread_lifecycle.png" class="concept-img" alt="Thread Lifecycle">
+<p class="img-caption">Figure 2: The lifecycle of a POSIX thread from creation to termination.</p>
+
+<h3>Creating a Thread</h3>
+<pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;pthread.h&gt;</span>
+
+<span class="type">void</span> *<span class="function">thread_function</span>(<span class="type">void</span> *arg)
+{
+    <span class="type">int</span> id = *(<span class="type">int</span> *)arg;
+    <span class="function">printf</span>(<span class="string">"Thread %d is running\n"</span>, id);
+    <span class="keyword">return</span> (<span class="type">void</span> *)<span class="number">0</span>;
+}
+
+<span class="type">int</span> <span class="function">main</span>(<span class="type">void</span>)
+{
+    <span class="type">pthread_t</span> thread;
+    <span class="type">int</span>       id = <span class="number">1</span>;
+
+    <span class="comment">/* Create a new thread */</span>
+    <span class="function">pthread_create</span>(&amp;thread, <span class="macro">NULL</span>, thread_function, &amp;id);
+
+    <span class="comment">/* Wait for the thread to finish */</span>
+    <span class="function">pthread_join</span>(thread, <span class="macro">NULL</span>);
+
+    <span class="keyword">return</span> <span class="number">0</span>;
+}</code></pre>
+
+<h3>Key Functions</h3>
+<table>
+<tr><th>Function</th><th>Purpose</th></tr>
+<tr><td><code>pthread_create</code></td><td>Creates a new thread. Takes: thread ID pointer, attributes, start function, argument.</td></tr>
+<tr><td><code>pthread_join</code></td><td>Waits for a thread to finish. Blocks until the target thread terminates.</td></tr>
+<tr><td><code>pthread_exit</code></td><td>Terminates the calling thread. Other threads continue running.</td></tr>
+<tr><td><code>pthread_detach</code></td><td>Marks a thread as detached — resources are freed automatically on exit. Cannot be joined.</td></tr>
+</table>
+
+<h3>Passing Arguments to Threads</h3>
+<p>Never pass a local variable's address if it might change before the thread reads it. Use dynamically allocated memory or an array:</p>
+<pre data-lang="c"><code><span class="type">int</span> <span class="function">main</span>(<span class="type">void</span>)
+{
+    <span class="type">pthread_t</span> threads[<span class="number">5</span>];
+    <span class="type">int</span>       ids[<span class="number">5</span>];
+    <span class="type">int</span>       i;
+
+    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">5</span>; i++)
+    {
+        ids[i] = i + <span class="number">1</span>;
+        <span class="function">pthread_create</span>(&amp;threads[i], <span class="macro">NULL</span>, thread_function, &amp;ids[i]);
+    }
+
+    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; <span class="number">5</span>; i++)
+        <span class="function">pthread_join</span>(threads[i], <span class="macro">NULL</span>);
+
+    <span class="keyword">return</span> <span class="number">0</span>;
+}</code></pre>
+
+<div class="info-box danger">
+<div class="info-box-title">Race Condition Warning</div>
+<p>If you pass <code>&amp;i</code> instead of <code>&amp;ids[i]</code> in the loop above, all threads might read the same value because <code>i</code> changes in the main thread while child threads are still starting up. This is a classic concurrency bug.</p>
+</div>
+</section>
+
+<section id="ch2">
+<h2><span class="chapter-number">2</span>Mutexes</h2>
+<p>A <strong>mutex</strong> (mutual exclusion lock) ensures that only one thread can access a critical section at a time. Think of it as a lock on a door: whoever holds the key can enter, everyone else waits outside.</p>
+
+<img src="images/mutex_concept.png" class="concept-img" alt="Mutex Concept">
+<p class="img-caption">Figure 3: Thread 1 holds the mutex and accesses the shared resource. Threads 2 and 3 wait.</p>
+
+<h3>Basic Mutex Operations</h3>
+<pre data-lang="c"><code><span class="type">pthread_mutex_t</span> lock;
+
+<span class="comment">/* Initialize */</span>
+<span class="function">pthread_mutex_init</span>(&amp;lock, <span class="macro">NULL</span>);
+
+<span class="comment">/* Lock (blocks if already locked) */</span>
+<span class="function">pthread_mutex_lock</span>(&amp;lock);
+
+<span class="comment">/* Critical section — only one thread here at a time */</span>
+shared_counter++;
+
+<span class="comment">/* Unlock */</span>
+<span class="function">pthread_mutex_unlock</span>(&amp;lock);
+
+<span class="comment">/* Destroy when done */</span>
+<span class="function">pthread_mutex_destroy</span>(&amp;lock);</code></pre>
+
+<h3>Why Mutexes Matter: The Lost Update</h3>
+<p>Without a mutex, two threads incrementing the same variable can lose updates:</p>
+<pre data-lang="c"><code><span class="comment">/* Thread A reads counter = 5 */</span>
+<span class="comment">/* Thread B reads counter = 5 (before A writes) */</span>
+<span class="comment">/* Thread A writes counter = 6 */</span>
+<span class="comment">/* Thread B writes counter = 6 (overwrites A's update!) */</span>
+<span class="comment">/* Expected: 7, Actual: 6 — LOST UPDATE */</span></code></pre>
+
+<h3>Try-Lock (Non-Blocking)</h3>
+<p><code>pthread_mutex_trylock</code> attempts to acquire the lock without blocking. It returns <code>0</code> on success, <code>EBUSY</code> if already locked:</p>
+<pre data-lang="c"><code><span class="keyword">if</span> (<span class="function">pthread_mutex_trylock</span>(&amp;lock) == <span class="number">0</span>)
+{
+    <span class="comment">/* Got the lock */</span>
+    <span class="function">pthread_mutex_unlock</span>(&amp;lock);
+}
+<span class="keyword">else</span>
+{
+    <span class="comment">/* Lock was busy, do something else */</span>
+}</code></pre>
+
+<h3>Mutex Attributes (Error Checking)</h3>
+<pre data-lang="c"><code><span class="type">pthread_mutexattr_t</span> attr;
+<span class="function">pthread_mutexattr_init</span>(&amp;attr);
+<span class="function">pthread_mutexattr_settype</span>(&amp;attr, PTHREAD_MUTEX_ERRORCHECK);
+<span class="function">pthread_mutex_init</span>(&amp;lock, &amp;attr);
+<span class="function">pthread_mutexattr_destroy</span>(&amp;attr);</code></pre>
+
+<div class="info-box tip">
+<div class="info-box-title">Mutex Best Practices</div>
+<ul>
+<li>Always pair <code>lock</code> with <code>unlock</code> — use the same thread for both</li>
+<li>Keep critical sections as short as possible</li>
+<li>Lock order matters: always acquire locks in the same order to prevent deadlock</li>
+<li>Initialize before use, destroy after all threads are done</li>
+</ul>
+</div>
+</section>
+
+<section id="ch3">
+<h2><span class="chapter-number">3</span>Condition Variables</h2>
+<p>A <strong>condition variable</strong> allows threads to wait for a condition to become true without consuming CPU. Unlike a mutex which only provides mutual exclusion, a condition variable provides <strong>synchronization</strong> — threads can sleep until signaled to wake up.</p>
+
+<h3>Why Not Just Spin?</h3>
+<pre data-lang="c"><code><span class="comment">/* BAD: Spin-waiting wastes 100% CPU */</span>
+<span class="keyword">while</span> (!ready)
+    ; <span class="comment">/* CPU burns waiting */</span>
+
+<span class="comment">/* GOOD: Condition variable puts thread to sleep */</span>
+<span class="function">pthread_mutex_lock</span>(&amp;lock);
+<span class="keyword">while</span> (!ready)
+    <span class="function">pthread_cond_wait</span>(&amp;cond, &amp;lock);  <span class="comment">/* Thread sleeps, releases lock */</span>
+<span class="function">pthread_mutex_unlock</span>(&amp;lock);</code></pre>
+
+<h3>The Three Condition Variable Operations</h3>
+<table>
+<tr><th>Function</th><th>Purpose</th></tr>
+<tr><td><code>pthread_cond_wait</code></td><td>Atomically release mutex and block until signaled. Re-acquires mutex before returning.</td></tr>
+<tr><td><code>pthread_cond_signal</code></td><td>Wake up <strong>one</strong> waiting thread.</td></tr>
+<tr><td><code>pthread_cond_broadcast</code></td><td>Wake up <strong>all</strong> waiting threads.</td></tr>
+<tr><td><code>pthread_cond_timedwait</code></td><td>Wait with a timeout. Returns <code>ETIMEDOUT</code> if deadline passes.</td></tr>
+</table>
+
+<h3>Producer-Consumer Example</h3>
+<p>This classic pattern shows how condition variables coordinate work between threads:</p>
+<pre data-lang="c"><code><span class="type">pthread_mutex_t</span> lock = PTHREAD_MUTEX_INITIALIZER;
+<span class="type">pthread_cond_t</span>  cond = PTHREAD_COND_INITIALIZER;
+<span class="type">int</span>             data_ready = <span class="number">0</span>;
+
+<span class="type">void</span> *<span class="function">consumer</span>(<span class="type">void</span> *arg)
+{
+    (<span class="type">void</span>)arg;
+
+    <span class="function">pthread_mutex_lock</span>(&amp;lock);
+    <span class="keyword">while</span> (!data_ready)
+    {
+        <span class="comment">/* Atomically: unlock mutex + sleep on cond + relock on wakeup */</span>
+        <span class="function">pthread_cond_wait</span>(&amp;cond, &amp;lock);
+    }
+    <span class="comment">/* Now we hold the lock and data_ready is true */</span>
+    <span class="function">printf</span>(<span class="string">"Consumer: got data!\n"</span>);
+    data_ready = <span class="number">0</span>;
+    <span class="function">pthread_mutex_unlock</span>(&amp;lock);
+    <span class="keyword">return</span> <span class="macro">NULL</span>;
+}
+
+<span class="type">void</span> *<span class="function">producer</span>(<span class="type">void</span> *arg)
+{
+    (<span class="type">void</span>)arg;
+
+    <span class="function">sleep</span>(<span class="number">1</span>);  <span class="comment">/* Simulate work */</span>
+
+    <span class="function">pthread_mutex_lock</span>(&amp;lock);
+    data_ready = <span class="number">1</span>;
+    <span class="function">pthread_cond_signal</span>(&amp;cond);  <span class="comment">/* Wake up consumer */</span>
+    <span class="function">pthread_mutex_unlock</span>(&amp;lock);
+    <span class="keyword">return</span> <span class="macro">NULL</span>;
+}</code></pre>
+
+<h3>Why <code>while</code> and Not <code>if</code>?</h3>
+<p>Always use <code>while</code> with <code>pthread_cond_wait</code>. This protects against <strong>spurious wakeups</strong> — rare events where a thread wakes up without being signaled. The while loop re-checks the condition:</p>
+<pre data-lang="c"><code><span class="comment">/* WRONG: If spurious wakeup happens, condition may still be false */</span>
+<span class="keyword">if</span> (!ready)
+    <span class="function">pthread_cond_wait</span>(&amp;cond, &amp;lock);
+
+<span class="comment">/* CORRECT: Re-check condition after every wakeup */</span>
+<span class="keyword">while</span> (!ready)
+    <span class="function">pthread_cond_wait</span>(&amp;cond, &amp;lock);</code></pre>
+
+<h3>Timed Wait</h3>
+<p><code>pthread_cond_timedwait</code> is essential for Codexion's burnout detection. It waits but returns <code>ETIMEDOUT</code> if the deadline passes:</p>
+<pre data-lang="c"><code><span class="type">struct timespec</span> deadline;
+<span class="function">clock_gettime</span>(CLOCK_REALTIME, &amp;deadline);
+deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait up to 1 second */</span>
+
+<span class="type">int</span> rc = <span class="function">pthread_cond_timedwait</span>(&amp;cond, &amp;lock, &amp;deadline);
+<span class="keyword">if</span> (rc == ETIMEDOUT)
+    <span class="function">printf</span>(<span class="string">"Timeout!\n"</span>);</code></pre>
+
+<div class="info-box warning">
+<div class="info-box-title">Important</div>
+<p><code>pthread_cond_wait</code> always requires a locked mutex. It atomically releases the mutex and puts the thread to sleep. When woken, it re-acquires the mutex before returning. This prevents lost wakeups.</p>
+</div>
+</section>
+
+<section id="ch4">
+<h2><span class="chapter-number">4</span>The Dining Philosophers Problem</h2>
+<p>Codexion is a variation of the <strong>Dining Philosophers</strong> — a classic concurrency problem where N philosophers sit at a round table with N forks. Each philosopher needs two forks to eat. The challenge: prevent deadlock and starvation.</p>
+
+<img src="images/deadlock.png" class="concept-img" alt="Deadlock Scenario">
+<p class="img-caption">Figure 4: Deadlock — every coder holds one dongle and waits for another.</p>
+
+<h3>The Deadlock Scenario</h3>
+<p>If every coder picks up their left dongle simultaneously, then tries to pick up their right dongle, everyone waits forever:</p>
+<pre data-lang="c"><code><span class="comment">/* DANGEROUS: Can cause deadlock */</span>
+<span class="function">pthread_mutex_lock</span>(&amp;left_dongle);   <span class="comment">/* Everyone grabs left */</span>
+<span class="function">pthread_mutex_lock</span>(&amp;right_dongle);  <span class="comment">/* Everyone waits for right -> DEADLOCK */</span>
+<span class="comment">/* Compile... */</span>
+<span class="function">pthread_mutex_unlock</span>(&amp;right_dongle);
+<span class="function">pthread_mutex_unlock</span>(&amp;left_dongle);</code></pre>
+
+<h3>Solution 1: Asymmetric Lock Ordering</h3>
+<p>Force an ordering: odd-numbered coders pick left first, even-numbered pick right first. This breaks the circular wait condition:</p>
+<pre data-lang="c"><code><span class="keyword">if</span> (coder_id % <span class="number">2</span> == <span class="number">0</span>)
+{
+    <span class="function">pthread_mutex_lock</span>(&amp;right_dongle);
+    <span class="function">pthread_mutex_lock</span>(&amp;left_dongle);
+}
+<span class="keyword">else</span>
+{
+    <span class="function">pthread_mutex_lock</span>(&amp;left_dongle);
+    <span class="function">pthread_mutex_lock</span>(&amp;right_dongle);
+}</code></pre>
+
+<h3>Solution 2: Try-Lock with Backoff</h3>
+<p>Pick up the first dongle, then try the second. If unavailable, release the first and retry:</p>
+<pre data-lang="c"><code><span class="keyword">while</span> (<span class="number">1</span>)
+{
+    <span class="function">pthread_mutex_lock</span>(&amp;left_dongle);
+    <span class="keyword">if</span> (<span class="function">pthread_mutex_trylock</span>(&amp;right_dongle) == <span class="number">0</span>)
+        <span class="keyword">break</span>;  <span class="comment">/* Got both! */</span>
+    <span class="function">pthread_mutex_unlock</span>(&amp;left_dongle);  <span class="comment">/* Release and retry */</span>
+    <span class="function">usleep</span>(<span class="number">100</span>);  <span class="comment">/* Small delay to prevent livelock */</span>
+}</code></pre>
+
+<h3>Solution 3: Condition Variables with Scheduler</h3>
+<p>This is the Codexion approach. Instead of blindly grabbing dongles, coders request access through a centralized scheduler that grants permission based on FIFO or EDF ordering:</p>
+<pre data-lang="c"><code><span class="comment">/* Coder requests both dongles from scheduler */</span>
+<span class="function">request_dongles</span>(coder_id);
+<span class="comment">/* Scheduler grants access, coder compiles */</span>
+<span class="function">compile</span>();
+<span class="comment">/* Release dongles back to scheduler */</span>
+<span class="function">release_dongles</span>(coder_id);</code></pre>
+
+<div class="info-box success">
+<div class="info-box-title">Deadlock Prevention Summary</div>
+<p>To prevent deadlock, eliminate one of the four Coffman conditions:</p>
+<ol>
+<li><strong>Mutual Exclusion</strong> — Dongles are exclusive (required)</li>
+<li><strong>Hold and Wait</strong> — Break by releasing held resources if second unavailable</li>
+<li><strong>No Preemption</strong> — Break by allowing forced release (not used here)</li>
+<li><strong>Circular Wait</strong> — Break by enforcing lock ordering or centralized scheduling</li>
+</ol>
+</div>
+</section>
+
+<section id="ch5">
+<h2><span class="chapter-number">5</span>Time in C</h2>
+<p>Precise timing is critical for Codexion. You need to measure elapsed time in milliseconds, compute deadlines, and implement cooldowns.</p>
+
+<h3>gettimeofday</h3>
+<p>Returns the current time with microsecond precision:</p>
+<pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;sys/time.h&gt;</span>
+
+<span class="type">long</span> <span class="type">long</span> <span class="function">get_time_ms</span>(<span class="type">void</span>)
+{
+    <span class="type">struct timeval</span> tv;
+
+    <span class="function">gettimeofday</span>(&amp;tv, <span class="macro">NULL</span>);
+    <span class="keyword">return</span> ((<span class="type">long</span> <span class="type">long</span>)tv.tv_sec * <span class="number">1000</span>) + (tv.tv_usec / <span class="number">1000</span>);
+}</code></pre>
+
+<h3>usleep</h3>
+<p>Suspends the calling thread for a specified number of microseconds:</p>
+<pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;unistd.h&gt;</span>
+
+<span class="function">usleep</span>(<span class="number">200000</span>);  <span class="comment">/* Sleep for 200 milliseconds */</span>
+<span class="function">usleep</span>(<span class="number">5000</span>);     <span class="comment">/* Sleep for 5 milliseconds */</span></code></pre>
+
+<div class="info-box warning">
+<div class="info-box-title">Precision Warning</div>
+<p><code>usleep</code> is not guaranteed to sleep for exactly the requested time. The OS scheduler may delay resumption. For Codexion, use <code>gettimeofday</code> to measure actual elapsed time rather than relying solely on <code>usleep</code>.</p>
+</div>
+
+<h3>Computing Deadlines</h3>
+<pre data-lang="c"><code><span class="type">long</span> <span class="type">long</span> last_compile_start = <span class="function">get_time_ms</span>();
+<span class="type">long</span> <span class="type">long</span> time_to_burnout = <span class="number">800</span>;  <span class="comment">/* ms */</span>
+
+<span class="comment">/* Check if burned out */</span>
+<span class="keyword">if</span> (<span class="function">get_time_ms</span>() - last_compile_start > time_to_burnout)
+    <span class="function">printf</span>(<span class="string">"BURNOUT!\n"</span>);</code></pre>
+
+<h3>Timed Condition Wait with Absolute Time</h3>
+<pre data-lang="c"><code><span class="type">struct timespec</span> <span class="function">ms_to_timespec</span>(<span class="type">long</span> <span class="type">long</span> ms)
+{
+    <span class="type">struct timespec</span> ts;
+    <span class="type">struct timeval</span>  tv;
+
+    <span class="function">gettimeofday</span>(&amp;tv, <span class="macro">NULL</span>);
+    ts.tv_sec = tv.tv_sec + (ms / <span class="number">1000</span>);
+    ts.tv_nsec = (tv.tv_usec * <span class="number">1000</span>) + ((ms % <span class="number">1000</span>) * <span class="number">1000000</span>);
+    <span class="keyword">if</span> (ts.tv_nsec >= <span class="number">1000000000</span>)
+    {
+        ts.tv_sec++;
+        ts.tv_nsec -= <span class="number">1000000000</span>;
+    }
+    <span class="keyword">return</span> ts;
+}</code></pre>
+</section>
+
+<section id="ch6">
+<h2><span class="chapter-number">6</span>Scheduling: FIFO vs EDF</h2>
+<p>When multiple coders request the same dongle, the scheduler decides who gets it first. Codexion implements two scheduling policies.</p>
+
+<img src="images/fifo_vs_edf.png" class="concept-img" alt="FIFO vs EDF Scheduling">
+<p class="img-caption">Figure 5: FIFO serves requests in arrival order. EDF reorders by urgency (earliest deadline).</p>
+
+<h3>FIFO (First In, First Out)</h3>
+<p>Requests are queued in arrival order. Simple, fair, but doesn't account for urgency:</p>
+<pre data-lang="c"><code><span class="comment">/* Simple linked list queue */</span>
+<span class="keyword">typedef struct</span> <span class="type">s_request</span>
+{
+    <span class="type">int</span>                 coder_id;
+    <span class="keyword">struct</span> <span class="type">s_request</span>   *next;
+} <span class="type">t_request</span>;
+
+<span class="keyword">typedef struct</span>
+{
+    <span class="type">t_request</span>   *head;
+    <span class="type">t_request</span>   *tail;
+} <span class="type">t_fifo_queue</span>;
+
+<span class="type">void</span> <span class="function">fifo_enqueue</span>(<span class="type">t_fifo_queue</span> *q, <span class="type">int</span> coder_id)
+{
+    <span class="type">t_request</span> *req = <span class="function">malloc</span>(<span class="keyword">sizeof</span>(<span class="type">t_request</span>));
+    req-&gt;coder_id = coder_id;
+    req-&gt;next = <span class="macro">NULL</span>;
+    <span class="keyword">if</span> (q-&gt;tail)
+        q-&gt;tail-&gt;next = req;
+    <span class="keyword">else</span>
+        q-&gt;head = req;
+    q-&gt;tail = req;
+}
+
+<span class="type">int</span> <span class="function">fifo_dequeue</span>(<span class="type">t_fifo_queue</span> *q)
+{
+    <span class="type">t_request</span> *req;
+    <span class="type">int</span>         id;
+
+    <span class="keyword">if</span> (!q-&gt;head)
+        <span class="keyword">return</span> -<span class="number">1</span>;
+    req = q-&gt;head;
+    id = req-&gt;coder_id;
+    q-&gt;head = req-&gt;next;
+    <span class="keyword">if</span> (!q-&gt;head)
+        q-&gt;tail = <span class="macro">NULL</span>;
+    <span class="function">free</span>(req);
+    <span class="keyword">return</span> id;
+}</code></pre>
+
+<h3>EDF (Earliest Deadline First)</h3>
+<p>Each coder has a burnout deadline computed as <code>last_compile_start + time_to_burnout</code>. EDF serves the coder whose deadline is closest:</p>
+<pre data-lang="c"><code><span class="comment">/* Priority = deadline (lower = higher priority) */</span>
+<span class="keyword">typedef struct</span> <span class="type">s_request</span>
+{
+    <span class="type">int</span>                 coder_id;
+    <span class="type">long</span> <span class="type">long</span>          deadline;  <span class="comment">/* burnout deadline in ms */</span>
+} <span class="type">t_request</span>;
+
+<span class="comment">/* Min-heap: parent has earlier deadline than children */</span>
+<span class="keyword">typedef struct</span>
+{
+    <span class="type">t_request</span>   *arr;
+    <span class="type">int</span>          size;
+    <span class="type">int</span>          capacity;
+} <span class="type">t_edf_queue</span>;</code></pre>
+
+<div class="info-box purple">
+<div class="info-box-title">EDF Optimality</div>
+<p>EDF is <strong>optimal</strong> for uniprocessor scheduling: if any schedule can meet all deadlines, EDF will too. This makes it ideal for Codexion's burnout prevention.</p>
+</div>
+</section>
+
+<section id="ch7">
+<h2><span class="chapter-number">7</span>Priority Queue / Min-Heap in C</h2>
+<p>C89 has no standard priority queue. You must implement a <strong>binary min-heap</strong> yourself. A heap is a complete binary tree where each parent is smaller than its children.</p>
+
+<h3>Heap Structure</h3>
+<pre data-lang="c"><code><span class="keyword">typedef struct</span> <span class="type">s_heap_node</span>
+{
+    <span class="type">int</span>         coder_id;
+    <span class="type">long</span> <span class="type">long</span>  deadline;  <span class="comment">/* priority: lower = higher */</span>
+} <span class="type">t_heap_node</span>;
+
+<span class="keyword">typedef struct</span>
+{
+    <span class="type">t_heap_node</span> *nodes;
+    <span class="type">int</span>          size;
+    <span class="type">int</span>          capacity;
+} <span class="type">t_heap</span>;
+
+<span class="type">t_heap</span> *<span class="function">heap_create</span>(<span class="type">int</span> capacity)
+{
+    <span class="type">t_heap</span> *h = <span class="function">malloc</span>(<span class="keyword">sizeof</span>(<span class="type">t_heap</span>));
+    h-&gt;nodes = <span class="function">malloc</span>(<span class="keyword">sizeof</span>(<span class="type">t_heap_node</span>) * capacity);
+    h-&gt;size = <span class="number">0</span>;
+    h-&gt;capacity = capacity;
+    <span class="keyword">return</span> h;
+}</code></pre>
+
+<h3>Heapify Up (Insertion)</h3>
+<p>After adding a node at the end, swap it with its parent until the heap property is restored:</p>
+<pre data-lang="c"><code><span class="type">void</span> <span class="function">heap_insert</span>(<span class="type">t_heap</span> *h, <span class="type">int</span> coder_id, <span class="type">long</span> <span class="type">long</span> deadline)
+{
+    <span class="type">int</span> i;
+    <span class="type">t_heap_node</span> tmp;
+
+    <span class="comment">/* Add at the end */</span>
+    i = h-&gt;size;
+    h-&gt;nodes[i].coder_id = coder_id;
+    h-&gt;nodes[i].deadline = deadline;
+    h-&gt;size++;
+
+    <span class="comment">/* Heapify up: swap with parent while smaller */</span>
+    <span class="keyword">while</span> (i > <span class="number">0</span>)
+    {
+        <span class="type">int</span> parent = (i - <span class="number">1</span>) / <span class="number">2</span>;
+        <span class="keyword">if</span> (h-&gt;nodes[parent].deadline &lt;= h-&gt;nodes[i].deadline)
+            <span class="keyword">break</span>;
+        <span class="comment">/* Swap */</span>
+        tmp = h-&gt;nodes[parent];
+        h-&gt;nodes[parent] = h-&gt;nodes[i];
+        h-&gt;nodes[i] = tmp;
+        i = parent;
+    }
+}</code></pre>
+
+<h3>Heapify Down (Extraction)</h3>
+<p>Replace the root with the last element, then swap with the smaller child until the heap property is restored:</p>
+<pre data-lang="c"><code><span class="type">t_heap_node</span> <span class="function">heap_extract_min</span>(<span class="type">t_heap</span> *h)
+{
+    <span class="type">t_heap_node</span> min;
+    <span class="type">t_heap_node</span> tmp;
+    <span class="type">int</span>         i;
+    <span class="type">int</span>         left;
+    <span class="type">int</span>         right;
+    <span class="type">int</span>         smallest;
+
+    min = h-&gt;nodes[<span class="number">0</span>];
+    h-&gt;size--;
+    h-&gt;nodes[<span class="number">0</span>] = h-&gt;nodes[h-&gt;size];
+
+    <span class="comment">/* Heapify down */</span>
+    i = <span class="number">0</span>;
+    <span class="keyword">while</span> (<span class="number">1</span>)
+    {
+        left = <span class="number">2</span> * i + <span class="number">1</span>;
+        right = <span class="number">2</span> * i + <span class="number">2</span>;
+        smallest = i;
+
+        <span class="keyword">if</span> (left &lt; h-&gt;size &amp;&amp; h-&gt;nodes[left].deadline &lt; h-&gt;nodes[smallest].deadline)
+            smallest = left;
+        <span class="keyword">if</span> (right &lt; h-&gt;size &amp;&amp; h-&gt;nodes[right].deadline &lt; h-&gt;nodes[smallest].deadline)
+            smallest = right;
+
+        <span class="keyword">if</span> (smallest == i)
+            <span class="keyword">break</span>;
+
+        tmp = h-&gt;nodes[i];
+        h-&gt;nodes[i] = h-&gt;nodes[smallest];
+        h-&gt;nodes[smallest] = tmp;
+        i = smallest;
+    }
+    <span class="keyword">return</span> min;
+}</code></pre>
+
+<h3>Complexity</h3>
+<table>
+<tr><th>Operation</th><th>Time</th><th>Description</th></tr>
+<tr><td>Insert</td><td>O(log n)</td><td>Heapify up from leaf to root</td></tr>
+<tr><td>Extract Min</td><td>O(log n)</td><td>Heapify down from root to leaf</td></tr>
+<tr><td>Peek Min</td><td>O(1)</td><td>Root is always the minimum</td></tr>
+</table>
+
+<div class="info-box tip">
+<div class="info-box-title">Heap Index Formulas</div>
+<p>For a 0-indexed array:</p>
+<ul>
+<li>Parent of i: <code>(i - 1) / 2</code></li>
+<li>Left child of i: <code>2 * i + 1</code></li>
+<li>Right child of i: <code>2 * i + 2</code></li>
+</ul>
+</div>
+</section>
+
+<section id="ch8">
+<h2><span class="chapter-number">8</span>The Monitor Pattern</h2>
+<p>A <strong>monitor</strong> is a design pattern where a dedicated thread continuously checks a condition and takes action when it becomes true. In Codexion, the monitor detects burnout.</p>
+
+<img src="images/monitor_thread.png" class="concept-img" alt="Monitor Thread">
+<p class="img-caption">Figure 6: The monitor thread continuously checks all coders' deadlines against the current time.</p>
+
+<h3>Monitor Implementation</h3>
+<pre data-lang="c"><code><span class="keyword">typedef struct</span> <span class="type">s_coder</span>
+{
+    <span class="type">int</span>          id;
+    <span class="type">long</span> <span class="type">long</span>   last_compile_start;
+    <span class="type">int</span>          compile_count;
+    <span class="type">int</span>          burned_out;
+} <span class="type">t_coder</span>;
+
+<span class="keyword">typedef struct</span> <span class="type">s_sim</span>
+{
+    <span class="type">t_coder</span>             *coders;
+    <span class="type">int</span>                  num_coders;
+    <span class="type">long</span> <span class="type">long</span>           time_to_burnout;
+    <span class="type">int</span>                  sim_over;
+    <span class="type">pthread_mutex_t</span>      sim_lock;
+} <span class="type">t_sim</span>;
+
+<span class="type">void</span> *<span class="function">monitor_thread</span>(<span class="type">void</span> *arg)
+{
+    <span class="type">t_sim</span>   *sim = (<span class="type">t_sim</span> *)arg;
+    <span class="type">int</span>      i;
+    <span class="type">long</span> <span class="type">long</span> now;
+    <span class="type">long</span> <span class="type">long</span> elapsed;
+
+    <span class="keyword">while</span> (<span class="number">1</span>)
+    {
+        <span class="function">usleep</span>(<span class="number">1000</span>);  <span class="comment">/* Check every 1ms */</span>
+
+        <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;sim_lock);
+        <span class="keyword">if</span> (sim-&gt;sim_over)
+        {
+            <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sim_lock);
+            <span class="keyword">break</span>;
+        }
+
+        now = <span class="function">get_time_ms</span>();
+        <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; sim-&gt;num_coders; i++)
+        {
+            <span class="keyword">if</span> (sim-&gt;coders[i].burned_out)
+                <span class="keyword">continue</span>;
+
+            elapsed = now - sim-&gt;coders[i].last_compile_start;
+            <span class="keyword">if</span> (elapsed > sim-&gt;time_to_burnout)
+            {
+                sim-&gt;coders[i].burned_out = <span class="number">1</span>;
+                sim-&gt;sim_over = <span class="number">1</span>;
+                <span class="function">printf</span>(<span class="string">"%lld %d burned out\n"</span>, now, sim-&gt;coders[i].id);
+                <span class="keyword">break</span>;
+            }
+        }
+        <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sim_lock);
+    }
+    <span class="keyword">return</span> <span class="macro">NULL</span>;
+}</code></pre>
+
+<div class="info-box warning">
+<div class="info-box-title">Precision Requirement</div>
+<p>The burnout log must be printed within 10ms of the actual burnout time. The monitor checks frequently (every 1ms) and uses the same mutex-protected state as the coders to ensure consistency.</p>
+</div>
+</section>
+
+<section id="ch9">
+<h2><span class="chapter-number">9</span>Codexion Architecture</h2>
+<p>Now we combine everything into the Codexion simulation. Here is the high-level architecture:</p>
+
+<img src="images/coder_cycle.png" class="concept-img" alt="Coder Activity Cycle">
+<p class="img-caption">Figure 7: Each coder cycles through Compile -> Debug -> Refactor repeatedly.</p>
+
+<h3>Component Overview</h3>
+<ol>
+<li><strong>Coder Threads</strong> — One per coder. Each loops: request dongles -> compile -> debug -> refactor.</li>
+<li><strong>Dongles</strong> — N mutex-protected resources. Each has a state (available/held/cooldown) and a cooldown timer.</li>
+<li><strong>Scheduler</strong> — Centralized queue (FIFO or EDF heap) that grants dongle access to waiting coders.</li>
+<li><strong>Monitor Thread</strong> — Detects burnout by checking if any coder exceeded <code>time_to_burnout</code> since last compile.</li>
+<li><strong>Logger</strong> — Mutex-protected output to prevent interleaved messages.</li>
+</ol>
+
+<h3>State Machine per Coder</h3>
+<pre data-lang="c"><code><span class="keyword">typedef enum</span> <span class="type">e_state</span>
+{
+    THINKING,    <span class="comment">/* Waiting for dongles */</span>
+    COMPILING,   <span class="comment">/* Has both dongles */</span>
+    DEBUGGING,   <span class="comment">/* Just released dongles */</span>
+    REFACTORING  <span class="comment">/* After debugging */</span>
+} <span class="type">t_state</span>;
+
+<span class="keyword">typedef struct</span> <span class="type">s_coder</span>
+{
+    <span class="type">int</span>             id;
+    <span class="type">pthread_t</span>       thread;
+    <span class="type">t_state</span>         state;
+    <span class="type">long</span> <span class="type">long</span>       last_compile_start;
+    <span class="type">int</span>             compile_count;
+    <span class="type">int</span>             burned_out;
+} <span class="type">t_coder</span>;</code></pre>
+
+<h3>Dongle Structure</h3>
+<pre data-lang="c"><code><span class="keyword">typedef struct</span> <span class="type">s_dongle</span>
+{
+    <span class="type">pthread_mutex_t</span>  mutex;
+    <span class="type">int</span>              holder_id;     <span class="comment">/* -1 if available */</span>
+    <span class="type">long</span> <span class="type">long</span>       released_at;   <span class="comment">/* timestamp for cooldown */</span>
+    <span class="type">int</span>              in_cooldown;
+} <span class="type">t_dongle</span>;</code></pre>
+
+<h3>Simulation Parameters</h3>
+<table>
+<tr><th>Parameter</th><th>Description</th></tr>
+<tr><td><code>number_of_coders</code></td><td>How many coders (threads) in the simulation</td></tr>
+<tr><td><code>time_to_burnout</code></td><td>Max ms between compiles before burnout</td></tr>
+<tr><td><code>time_to_compile</code></td><td>Duration of compiling in ms</td></tr>
+<tr><td><code>time_to_debug</code></td><td>Duration of debugging in ms</td></tr>
+<tr><td><code>time_to_refactor</code></td><td>Duration of refactoring in ms</td></tr>
+<tr><td><code>number_of_compiles_required</code></td><td>Stop when all coders compiled this many times</td></tr>
+<tr><td><code>dongle_cooldown</code></td><td>Ms before a released dongle can be taken again</td></tr>
+<tr><td><code>scheduler</code></td><td><code>"fifo"</code> or <code>"edf"</code></td></tr>
+</table>
+</section>
+
+<section id="ch10">
+<h2><span class="chapter-number">10</span>Data Structures</h2>
+
+<h3>Complete Simulation Structure</h3>
+<pre data-lang="c"><code><span class="macro">#define</span> <span class="macro">MAX_CODERS</span> <span class="number">200</span>
+
+<span class="keyword">typedef struct</span> <span class="type">s_sim</span>
+{
+    <span class="comment">/* Config */</span>
+    <span class="type">int</span>             num_coders;
+    <span class="type">long</span> <span class="type">long</span>       time_to_burnout;
+    <span class="type">long</span> <span class="type">long</span>       time_to_compile;
+    <span class="type">long</span> <span class="type">long</span>       time_to_debug;
+    <span class="type">long</span> <span class="type">long</span>       time_to_refactor;
+    <span class="type">int</span>             compiles_required;
+    <span class="type">long</span> <span class="type">long</span>       dongle_cooldown;
+    <span class="type">int</span>             use_edf;          <span class="comment">/* 0 = fifo, 1 = edf */</span>
+
+    <span class="comment">/* State */</span>
+    <span class="type">t_coder</span>         coders[<span class="macro">MAX_CODERS</span>];
+    <span class="type">t_dongle</span>        dongles[<span class="macro">MAX_CODERS</span>];
+    <span class="type">int</span>             sim_over;
+    <span class="type">int</span>             all_done;
+
+    <span class="comment">/* Scheduler */</span>
+    <span class="type">pthread_mutex_t</span>  sched_lock;
+    <span class="type">pthread_cond_t</span>   sched_cond;
+    <span class="type">t_heap</span>          *edf_queue;       <span class="comment">/* NULL if FIFO */</span>
+    <span class="type">t_fifo_queue</span>    fifo_queue;
+
+    <span class="comment">/* Logging */</span>
+    <span class="type">pthread_mutex_t</span>  log_lock;
+
+    <span class="comment">/* Monitor */</span>
+    <span class="type">pthread_t</span>       monitor;
+} <span class="type">t_sim</span>;</code></pre>
+
+<h3>Requesting Dongles (Centralized)</h3>
+<p>Instead of grabbing dongles directly, coders request them through the scheduler. The scheduler checks availability and either grants immediately or queues the request:</p>
+<pre data-lang="c"><code><span class="type">void</span> <span class="function">request_dongles</span>(<span class="type">t_sim</span> *sim, <span class="type">int</span> coder_id)
+{
+    <span class="type">int</span>         left;
+    <span class="type">int</span>         right;
+    <span class="type">long</span> <span class="type">long</span>   now;
+    <span class="type">long</span> <span class="type">long</span>   deadline;
+
+    left = coder_id;
+    right = (coder_id + <span class="number">1</span>) % sim-&gt;num_coders;
+
+    <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;sched_lock);
+
+    <span class="comment">/* Wait until both dongles are available AND not in cooldown */</span>
+    <span class="keyword">while</span> (!sim-&gt;sim_over)
+    {
+        now = <span class="function">get_time_ms</span>();
+
+        <span class="comment">/* Check cooldown */</span>
+        <span class="keyword">if</span> (sim-&gt;dongles[left].in_cooldown)
+        {
+            <span class="keyword">if</span> (now - sim-&gt;dongles[left].released_at >= sim-&gt;dongle_cooldown)
+                sim-&gt;dongles[left].in_cooldown = <span class="number">0</span>;
+        }
+        <span class="keyword">if</span> (sim-&gt;dongles[right].in_cooldown)
+        {
+            <span class="keyword">if</span> (now - sim-&gt;dongles[right].released_at >= sim-&gt;dongle_cooldown)
+                sim-&gt;dongles[right].in_cooldown = <span class="number">0</span>;
+        }
+
+        <span class="comment">/* Check availability */</span>
+        <span class="keyword">if</span> (!sim-&gt;dongles[left].in_cooldown &amp;&amp;
+            !sim-&gt;dongles[right].in_cooldown &amp;&amp;
+            sim-&gt;dongles[left].holder_id == -<span class="number">1</span> &amp;&amp;
+            sim-&gt;dongles[right].holder_id == -<span class="number">1</span>)
+        {
+            <span class="comment">/* Grant access */</span>
+            sim-&gt;dongles[left].holder_id = coder_id;
+            sim-&gt;dongles[right].holder_id = coder_id;
+            <span class="function">log_message</span>(sim, now, coder_id, <span class="string">"has taken a dongle"</span>);
+            <span class="function">log_message</span>(sim, now, coder_id, <span class="string">"has taken a dongle"</span>);
+            <span class="keyword">break</span>;
+        }
+
+        <span class="comment">/* Not available: queue and wait */</span>
+        deadline = sim-&gt;coders[coder_id].last_compile_start + sim-&gt;time_to_burnout;
+        <span class="keyword">if</span> (sim-&gt;use_edf)
+            <span class="function">heap_insert</span>(sim-&gt;edf_queue, coder_id, deadline);
+        <span class="keyword">else</span>
+            <span class="function">fifo_enqueue</span>(&amp;sim-&gt;fifo_queue, coder_id);
+
+        <span class="function">pthread_cond_wait</span>(&amp;sim-&gt;sched_cond, &amp;sim-&gt;sched_lock);
+
+        <span class="comment">/* Woken up — remove from queue if still there */</span>
+        <span class="comment">/* (simplified: in real code, check if we're the head) */</span>
+    }
+
+    <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+}</code></pre>
+
+<h3>Releasing Dongles</h3>
+<pre data-lang="c"><code><span class="type">void</span> <span class="function">release_dongles</span>(<span class="type">t_sim</span> *sim, <span class="type">int</span> coder_id)
+{
+    <span class="type">int</span>         left;
+    <span class="type">int</span>         right;
+    <span class="type">long</span> <span class="type">long</span>   now;
+
+    left = coder_id;
+    right = (coder_id + <span class="number">1</span>) % sim-&gt;num_coders;
+    now = <span class="function">get_time_ms</span>();
+
+    <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;sched_lock);
+
+    sim-&gt;dongles[left].holder_id = -<span class="number">1</span>;
+    sim-&gt;dongles[left].released_at = now;
+    sim-&gt;dongles[left].in_cooldown = <span class="number">1</span>;
+
+    sim-&gt;dongles[right].holder_id = -<span class="number">1</span>;
+    sim-&gt;dongles[right].released_at = now;
+    sim-&gt;dongles[right].in_cooldown = <span class="number">1</span>;
+
+    <span class="comment">/* Wake up waiting coders to check availability */</span>
+    <span class="function">pthread_cond_broadcast</span>(&amp;sim-&gt;sched_cond);
+
+    <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+}</code></pre>
+
+<div class="info-box tip">
+<div class="info-box-title">Why broadcast?</div>
+<p>We use <code>pthread_cond_broadcast</code> instead of <code>pthread_cond_signal</code> because multiple coders might be waiting, and the one we signal might not be able to proceed (its needed dongles may still be unavailable). Broadcasting lets everyone re-check.</p>
+</div>
+</section>
+
+<section id="ch11">
+<h2><span class="chapter-number">11</span>Full Implementation</h2>
+<p>Here is the complete structure of a working Codexion implementation. This is organized into logical sections you can copy, study, and adapt.</p>
+
+<h3>Part A: Headers and Utility Functions</h3>
+<pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;pthread.h&gt;</span>
+<span class="macro">#include</span> <span class="string">&lt;sys/time.h&gt;</span>
+<span class="macro">#include</span> <span class="string">&lt;unistd.h&gt;</span>
+<span class="macro">#include</span> <span class="string">&lt;stdio.h&gt;</span>
+<span class="macro">#include</span> <span class="string">&lt;stdlib.h&gt;</span>
+<span class="macro">#include</span> <span class="string">&lt;string.h&gt;</span>
+
+<span class="type">long</span> <span class="type">long</span> <span class="function">get_time_ms</span>(<span class="type">void</span>)
+{
+    <span class="type">struct timeval</span> tv;
+    <span class="function">gettimeofday</span>(&amp;tv, <span class="macro">NULL</span>);
+    <span class="keyword">return</span> ((<span class="type">long</span> <span class="type">long</span>)tv.tv_sec * <span class="number">1000</span>) + (tv.tv_usec / <span class="number">1000</span>);
+}
+
+<span class="type">void</span> <span class="function">precise_sleep</span>(<span class="type">long</span> <span class="type">long</span> ms)
+{
+    <span class="type">long</span> <span class="type">long</span> start;
+
+    start = <span class="function">get_time_ms</span>();
+    <span class="keyword">while</span> (<span class="function">get_time_ms</span>() - start &lt; ms)
+        <span class="function">usleep</span>(<span class="number">100</span>);
+}</code></pre>
+
+<h3>Part B: Logger (Mutex-Protected Output)</h3>
+<pre data-lang="c"><code><span class="type">void</span> <span class="function">log_message</span>(<span class="type">t_sim</span> *sim, <span class="type">long</span> <span class="type">long</span> ts, <span class="type">int</span> coder_id, <span class="type">char</span> *msg)
+{
+    <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;log_lock);
+    <span class="function">printf</span>(<span class="string">"%lld %d %s\n"</span>, ts, coder_id, msg);
+    <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;log_lock);
+}</code></pre>
+
+<h3>Part C: Coder Thread Routine</h3>
+<pre data-lang="c"><code><span class="type">void</span> *<span class="function">coder_routine</span>(<span class="type">void</span> *arg)
+{
+    <span class="type">t_sim</span>   *sim;
+    <span class="type">int</span>      id;
+    <span class="type">long</span> <span class="type">long</span> ts;
+
+    sim = (<span class="type">t_sim</span> *)arg;
+    id = sim-&gt;coder_id;  <span class="comment">/* passed via thread arg */</span>
+
+    <span class="keyword">while</span> (<span class="number">1</span>)
+    {
+        <span class="comment">/* Check if simulation ended */</span>
+        <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;sched_lock);
+        <span class="keyword">if</span> (sim-&gt;sim_over || sim-&gt;coders[id].burned_out)
+        {
+            <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+            <span class="keyword">break</span>;
+        }
+        <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+
+        <span class="comment">/* Request dongles (blocks until available) */</span>
+        <span class="function">request_dongles</span>(sim, id);
+
+        <span class="comment">/* Compiling */</span>
+        ts = <span class="function">get_time_ms</span>();
+        sim-&gt;coders[id].last_compile_start = ts;
+        <span class="function">log_message</span>(sim, ts, id, <span class="string">"is compiling"</span>);
+        <span class="function">precise_sleep</span>(sim-&gt;time_to_compile);
+        sim-&gt;coders[id].compile_count++;
+
+        <span class="comment">/* Release dongles */</span>
+        <span class="function">release_dongles</span>(sim, id);
+
+        <span class="comment">/* Check if done */</span>
+        <span class="function">pthread_mutex_lock</span>(&amp;sim-&gt;sched_lock);
+        <span class="keyword">if</span> (sim-&gt;coders[id].compile_count >= sim-&gt;compiles_required)
+        {
+            sim-&gt;all_done = <span class="function">check_all_done</span>(sim);
+            <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+            <span class="keyword">break</span>;
+        }
+        <span class="function">pthread_mutex_unlock</span>(&amp;sim-&gt;sched_lock);
+
+        <span class="comment">/* Debugging */</span>
+        ts = <span class="function">get_time_ms</span>();
+        <span class="function">log_message</span>(sim, ts, id, <span class="string">"is debugging"</span>);
+        <span class="function">precise_sleep</span>(sim-&gt;time_to_debug);
+
+        <span class="comment">/* Refactoring */</span>
+        ts = <span class="function">get_time_ms</span>();
+        <span class="function">log_message</span>(sim, ts, id, <span class="string">"is refactoring"</span>);
+        <span class="function">precise_sleep</span>(sim-&gt;time_to_refactor);
+    }
+    <span class="keyword">return</span> <span class="macro">NULL</span>;
+}</code></pre>
+
+<h3>Part D: Argument Parsing</h3>
+<pre data-lang="c"><code><span class="type">int</span> <span class="function">parse_args</span>(<span class="type">int</span> argc, <span class="type">char</span> **argv, <span class="type">t_sim</span> *sim)
+{
+    <span class="keyword">if</span> (argc != <span class="number">9</span>)
+        <span class="keyword">return</span> <span class="number">1</span>;
+
+    sim-&gt;num_coders = <span class="function">atoi</span>(argv[<span class="number">1</span>]);
+    sim-&gt;time_to_burnout = <span class="function">atoi</span>(argv[<span class="number">2</span>]);
+    sim-&gt;time_to_compile = <span class="function">atoi</span>(argv[<span class="number">3</span>]);
+    sim-&gt;time_to_debug = <span class="function">atoi</span>(argv[<span class="number">4</span>]);
+    sim-&gt;time_to_refactor = <span class="function">atoi</span>(argv[<span class="number">5</span>]);
+    sim-&gt;compiles_required = <span class="function">atoi</span>(argv[<span class="number">6</span>]);
+    sim-&gt;dongle_cooldown = <span class="function">atoi</span>(argv[<span class="number">7</span>]);
+
+    <span class="keyword">if</span> (!<span class="function">strcmp</span>(argv[<span class="number">8</span>], <span class="string">"fifo"</span>))
+        sim-&gt;use_edf = <span class="number">0</span>;
+    <span class="keyword">else if</span> (!<span class="function">strcmp</span>(argv[<span class="number">8</span>], <span class="string">"edf"</span>))
+        sim-&gt;use_edf = <span class="number">1</span>;
+    <span class="keyword">else</span>
+        <span class="keyword">return</span> <span class="number">1</span>;
+
+    <span class="comment">/* Validate */</span>
+    <span class="keyword">if</span> (sim-&gt;num_coders &lt;= <span class="number">0</span> || sim-&gt;time_to_burnout &lt;= <span class="number">0</span>)
+        <span class="keyword">return</span> <span class="number">1</span>;
+
+    <span class="keyword">return</span> <span class="number">0</span>;
+}</code></pre>
+
+<h3>Part E: Initialization</h3>
+<pre data-lang="c"><code><span class="type">void</span> <span class="function">init_simulation</span>(<span class="type">t_sim</span> *sim)
+{
+    <span class="type">int</span> i;
+    <span class="type">long</span> <span class="type">long</span> now;
+
+    now = <span class="function">get_time_ms</span>();
+    sim-&gt;sim_over = <span class="number">0</span>;
+    sim-&gt;all_done = <span class="number">0</span>;
+
+    <span class="function">pthread_mutex_init</span>(&amp;sim-&gt;sched_lock, <span class="macro">NULL</span>);
+    <span class="function">pthread_cond_init</span>(&amp;sim-&gt;sched_cond, <span class="macro">NULL</span>);
+    <span class="function">pthread_mutex_init</span>(&amp;sim-&gt;log_lock, <span class="macro">NULL</span>);
+
+    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; sim-&gt;num_coders; i++)
+    {
+        sim-&gt;coders[i].id = i + <span class="number">1</span>;
+        sim-&gt;coders[i].state = THINKING;
+        sim-&gt;coders[i].last_compile_start = now;
+        sim-&gt;coders[i].compile_count = <span class="number">0</span>;
+        sim-&gt;coders[i].burned_out = <span class="number">0</span>;
+
+        sim-&gt;dongles[i].holder_id = -<span class="number">1</span>;
+        sim-&gt;dongles[i].in_cooldown = <span class="number">0</span>;
+        <span class="function">pthread_mutex_init</span>(&amp;sim-&gt;dongles[i].mutex, <span class="macro">NULL</span>);
+    }
+
+    <span class="keyword">if</span> (sim-&gt;use_edf)
+        sim-&gt;edf_queue = <span class="function">heap_create</span>(sim-&gt;num_coders * <span class="number">2</span>);
+    <span class="keyword">else</span>
+        <span class="function">fifo_init</span>(&amp;sim-&gt;fifo_queue);
+}</code></pre>
+
+<h3>Part F: Main Function</h3>
+<pre data-lang="c"><code><span class="type">int</span> <span class="function">main</span>(<span class="type">int</span> argc, <span class="type">char</span> **argv)
+{
+    <span class="type">t_sim</span>   sim;
+    <span class="type">int</span>     i;
+
+    <span class="function">memset</span>(&amp;sim, <span class="number">0</span>, <span class="keyword">sizeof</span>(sim));
+    <span class="keyword">if</span> (<span class="function">parse_args</span>(argc, argv, &amp;sim))
+    {
+        <span class="function">fprintf</span>(stderr, <span class="string">"Usage: ./codexion n burn compile debug refactor required cooldown {fifo|edf}\n"</span>);
+        <span class="keyword">return</span> <span class="number">1</span>;
+    }
+
+    <span class="function">init_simulation</span>(&amp;sim);
+
+    <span class="comment">/* Create monitor thread */</span>
+    <span class="function">pthread_create</span>(&amp;sim.monitor, <span class="macro">NULL</span>, monitor_thread, &amp;sim);
+
+    <span class="comment">/* Create coder threads */</span>
+    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; sim.num_coders; i++)
+        <span class="function">pthread_create</span>(&amp;sim.coders[i].thread, <span class="macro">NULL</span>, coder_routine, &amp;sim);
+
+    <span class="comment">/* Wait for all coders */</span>
+    <span class="keyword">for</span> (i = <span class="number">0</span>; i &lt; sim.num_coders; i++)
+        <span class="function">pthread_join</span>(sim.coders[i].thread, <span class="macro">NULL</span>);
+
+    <span class="comment">/* Signal monitor to stop and wait */</span>
+    <span class="function">pthread_mutex_lock</span>(&amp;sim.sched_lock);
+    sim.sim_over = <span class="number">1</span>;
+    <span class="function">pthread_mutex_unlock</span>(&amp;sim.sched_lock);
+    <span class="function">pthread_join</span>(sim.monitor, <span class="macro">NULL</span>);
+
+    <span class="comment">/* Cleanup */</span>
+    <span class="function">cleanup_simulation</span>(&amp;sim);
+    <span class="keyword">return</span> <span class="number">0</span>;
+}</code></pre>
+
+<div class="info-box success">
+<div class="info-box-title">Complete Flow</div>
+<p>1. Parse arguments -> 2. Initialize simulation state -> 3. Create monitor thread -> 4. Create coder threads -> 5. Wait for coders to finish -> 6. Signal monitor -> 7. Cleanup</p>
+</div>
+</section>
+
+<section id="ch12">
+<h2><span class="chapter-number">12</span>Interactive Simulator</h2>
+<p>Experiment with the Codexion simulation directly in your browser. Adjust parameters and watch how FIFO vs EDF scheduling affects coder survival.</p>
+
+<div class="simulator-container">
+<div class="simulator-title">Codexion Visual Simulator</div>
+<canvas id="simCanvas" class="sim-canvas" width="800" height="320"></canvas>
+<div class="sim-controls">
+<button class="sim-btn" onclick="simStart()">Start Simulation</button>
+<button class="sim-btn" onclick="simPause()">Pause / Resume</button>
+<button class="sim-btn" onclick="simReset()">Reset</button>
+<select class="sim-btn" id="schedSelect" onchange="simSetScheduler(this.value)">
+<option value="fifo">FIFO Scheduler</option>
+<option value="edf">EDF Scheduler</option>
+</select>
+</div>
+<div class="sim-controls">
+<label style="color:var(--text-secondary);font-size:0.85rem;">Coders: <input type="range" id="numCoders" min="2" max="8" value="4" onchange="simReset()"></label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">Burnout(ms): <input type="range" id="burnout" min="500" max="3000" value="1200" step="100" onchange="simReset()"></label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">Cooldown(ms): <input type="range" id="cooldown" min="0" max="500" value="100" step="50" onchange="simReset()"></label>
+</div>
+<div class="sim-stats">
+<div class="sim-stat">Time: <span id="simTime">0</span>ms</div>
+<div class="sim-stat">Status: <span id="simStatus">Ready</span></div>
+<div class="sim-stat">Compiles: <span id="simCompiles">0</span></div>
+<div class="sim-stat">Burnouts: <span id="simBurnouts">0</span></div>
+</div>
+</div>
+
+<script>
+(function() {
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+let sim = null;
+let animId = null;
+let lastFrame = 0;
+
+const COLORS = {
+    bg: '#0d1117', table: '#21262d', dongle: '#58a6ff',
+    coder: ['#ff6b72','#4dabf7','#3fb950','#d29922','#a371f7','#ff8787','#74c0fc','#8ce99a'],
+    compiling: '#58a6ff', debugging: '#3fb950', refactoring: '#d29922',
+    waiting: '#8b949e', burned: '#f85149', text: '#c9d1d9'
+};
+
+class CodexionSim {
+    constructor() {
+        this.numCoders = parseInt(document.getElementById('numCoders').value);
+        this.burnoutTime = parseInt(document.getElementById('burnout').value);
+        this.cooldownTime = parseInt(document.getElementById('cooldown').value);
+        this.scheduler = document.getElementById('schedSelect').value;
+        this.time = 0;
+        this.running = false;
+        this.paused = false;
+        this.speed = 2; // simulation speed multiplier
+        this.coders = [];
+        this.dongles = [];
+        this.queue = [];
+        this.burnouts = 0;
+        this.totalCompiles = 0;
+        this.simOver = false;
+        this.init();
+    }
+
+    init() {
+        const now = 0;
+        for (let i = 0; i < this.numCoders; i++) {
+            this.coders.push({
+                id: i+1, state: 'waiting', lastCompile: now,
+                compileCount: 0, burned: false,
+                hasLeft: false, hasRight: false,
+                activityEnd: 0, x: 0, y: 0
+            });
+            this.dongles.push({
+                id: i+1, holder: -1, inCooldown: false,
+                releasedAt: 0, x: 0, y: 0
+            });
+        }
+        this.positionElements();
+    }
+
+    positionElements() {
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        const rCoder = Math.min(canvas.width, canvas.height) * 0.32;
+        const rDongle = rCoder * 0.65;
+        for (let i = 0; i < this.numCoders; i++) {
+            const a = (2 * Math.PI * i / this.numCoders) - Math.PI/2;
+            this.coders[i].x = cx + rCoder * Math.cos(a);
+            this.coders[i].y = cy + rCoder * Math.sin(a);
+            const a2 = (2 * Math.PI * (i + 0.5) / this.numCoders) - Math.PI/2;
+            this.dongles[i].x = cx + rDongle * Math.cos(a2);
+            this.dongles[i].y = cy + rDongle * Math.sin(a2);
+        }
+    }
+
+    update(dt) {
+        if (!this.running || this.paused || this.simOver) return;
+        this.time += dt * this.speed;
+        const now = this.time;
+
+        // Update cooldowns
+        for (let d of this.dongles) {
+            if (d.inCooldown && now - d.releasedAt >= this.cooldownTime) {
+                d.inCooldown = false;
+                d.holder = -1;
+            }
+        }
+
+        // Check burnouts
+        for (let c of this.coders) {
+            if (c.burned) continue;
+            if (now - c.lastCompile > this.burnoutTime) {
+                c.burned = true;
+                c.state = 'burned';
+                this.burnouts++;
+                this.simOver = true;
+            }
+        }
+
+        // Update coder states
+        for (let c of this.coders) {
+            if (c.burned) continue;
+            if (c.state === 'compiling' && now >= c.activityEnd) {
+                this.releaseDongles(c);
+                c.state = 'debugging';
+                c.activityEnd = now + 300; // debug time
+                c.compileCount++;
+                this.totalCompiles++;
+                c.lastCompile = now;
+            } else if (c.state === 'debugging' && now >= c.activityEnd) {
+                c.state = 'refactoring';
+                c.activityEnd = now + 300; // refactor time
+            } else if (c.state === 'refactoring' && now >= c.activityEnd) {
+                c.state = 'waiting';
+                this.tryRequest(c);
+            } else if (c.state === 'waiting') {
+                this.tryRequest(c);
+            }
+        }
+
+        // Process queue
+        if (this.scheduler === 'fifo') {
+            for (let i = this.queue.length - 1; i >= 0; i--) {
+                const c = this.queue[i];
+                if (this.canAcquire(c)) {
+                    this.acquire(c);
+                    this.queue.splice(i, 1);
+                }
+            }
+        } else {
+            // EDF: sort by deadline, try to serve
+            this.queue.sort((a, b) => (a.lastCompile + this.burnoutTime) - (b.lastCompile + this.burnoutTime));
+            for (let i = 0; i < this.queue.length; i++) {
+                const c = this.queue[i];
+                if (this.canAcquire(c)) {
+                    this.acquire(c);
+                    this.queue.splice(i, 1);
+                    i--;
+                }
+            }
+        }
+
+        // Update stats
+        document.getElementById('simTime').textContent = Math.floor(this.time);
+        document.getElementById('simCompiles').textContent = this.totalCompiles;
+        document.getElementById('simBurnouts').textContent = this.burnouts;
+        document.getElementById('simStatus').textContent = this.simOver ? (this.burnouts > 0 ? 'BURNOUT!' : 'Complete') : 'Running';
+    }
+
+    tryRequest(c) {
+        if (this.canAcquire(c)) {
+            this.acquire(c);
+        } else if (!this.queue.includes(c)) {
+            this.queue.push(c);
+        }
+    }
+
+    canAcquire(c) {
+        const left = c.id - 1;
+        const right = c.id % this.numCoders;
+        const dl = this.dongles[left];
+        const dr = this.dongles[right];
+        return !dl.inCooldown && !dr.inCooldown && dl.holder === -1 && dr.holder === -1;
+    }
+
+    acquire(c) {
+        const left = c.id - 1;
+        const right = c.id % this.numCoders;
+        this.dongles[left].holder = c.id;
+        this.dongles[right].holder = c.id;
+        c.hasLeft = true;
+        c.hasRight = true;
+        c.state = 'compiling';
+        c.activityEnd = this.time + 400; // compile time
+    }
+
+    releaseDongles(c) {
+        const left = c.id - 1;
+        const right = c.id % this.numCoders;
+        this.dongles[left].holder = -1;
+        this.dongles[left].inCooldown = true;
+        this.dongles[left].releasedAt = this.time;
+        this.dongles[right].holder = -1;
+        this.dongles[right].inCooldown = true;
+        this.dongles[right].releasedAt = this.time;
+        c.hasLeft = false;
+        c.hasRight = false;
+    }
+
+    draw() {
+        ctx.fillStyle = COLORS.bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Table
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 40, 0, Math.PI * 2);
+        ctx.fillStyle = COLORS.table;
+        ctx.fill();
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Quantum', cx, cy - 4);
+        ctx.fillText('Compiler', cx, cy + 10);
+
+        // Dongles
+        for (let d of this.dongles) {
+            ctx.beginPath();
+            ctx.arc(d.x, d.y, 14, 0, Math.PI * 2);
+            if (d.inCooldown) {
+                ctx.fillStyle = '#30363d';
+                ctx.strokeStyle = '#f85149';
+            } else if (d.holder !== -1) {
+                ctx.fillStyle = COLORS.coder[d.holder - 1];
+                ctx.strokeStyle = '#fff';
+            } else {
+                ctx.fillStyle = '#21262d';
+                ctx.strokeStyle = COLORS.dongle;
+            }
+            ctx.lineWidth = 2;
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px monospace';
+            ctx.fillText('D' + d.id, d.x, d.y + 3);
+        }
+
+        // Coders
+        for (let c of this.coders) {
+            const r = 22;
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+            if (c.burned) {
+                ctx.fillStyle = '#f85149';
+                ctx.strokeStyle = '#fff';
+            } else {
+                ctx.fillStyle = COLORS.coder[c.id - 1];
+                ctx.strokeStyle = '#fff';
+            }
+            ctx.lineWidth = 2;
+            ctx.fill();
+            ctx.stroke();
+
+            // State ring
+            const stateColors = {compiling: COLORS.compiling, debugging: COLORS.debugging,
+                                refactoring: COLORS.refactoring, waiting: COLORS.waiting, burned: COLORS.burned};
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, r + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = stateColors[c.state] || COLORS.waiting;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Label
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 11px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('C' + c.id, c.x, c.y + 3);
+
+            // State text
+            ctx.fillStyle = stateColors[c.state] || COLORS.waiting;
+            ctx.font = '10px sans-serif';
+            ctx.fillText(c.state.toUpperCase(), c.x, c.y + r + 14);
+
+            // Burnout bar
+            if (!c.burned) {
+                const elapsed = this.time - c.lastCompile;
+                const pct = Math.min(elapsed / this.burnoutTime, 1);
+                const barW = 40;
+                const barH = 4;
+                const bx = c.x - barW/2;
+                const by = c.y + r + 20;
+                ctx.fillStyle = '#30363d';
+                ctx.fillRect(bx, by, barW, barH);
+                ctx.fillStyle = pct > 0.7 ? '#f85149' : (pct > 0.4 ? '#d29922' : '#3fb950');
+                ctx.fillRect(bx, by, barW * pct, barH);
+            }
+        }
+
+        // Queue info
+        ctx.fillStyle = COLORS.text;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('Queue: [' + this.queue.map(c => 'C'+c.id).join(', ') + ']', 10, 20);
+        ctx.fillText('Scheduler: ' + this.scheduler.toUpperCase(), 10, 36);
+    }
+}
+
+function simLoop(timestamp) {
+    if (!sim) return;
+    const dt = lastFrame ? (timestamp - lastFrame) : 16;
+    lastFrame = timestamp;
+    sim.update(dt);
+    sim.draw();
+    if (sim.running && !sim.simOver) {
+        animId = requestAnimationFrame(simLoop);
+    }
+}
+
+window.simStart = function() {
+    if (!sim) sim = new CodexionSim();
+    sim.running = true;
+    sim.paused = false;
+    lastFrame = 0;
+    animId = requestAnimationFrame(simLoop);
+};
+
+window.simPause = function() {
+    if (sim) sim.paused = !sim.paused;
+    if (sim && !sim.paused && sim.running) {
+        lastFrame = 0;
+        animId = requestAnimationFrame(simLoop);
+    }
+};
+
+window.simReset = function() {
+    if (animId) cancelAnimationFrame(animId);
+    sim = new CodexionSim();
+    sim.draw();
+    document.getElementById('simTime').textContent = '0';
+    document.getElementById('simCompiles').textContent = '0';
+    document.getElementById('simBurnouts').textContent = '0';
+    document.getElementById('simStatus').textContent = 'Ready';
+};
+
+window.simSetScheduler = function(val) {
+    if (sim) sim.scheduler = val;
+};
+
+// Initial draw
+simReset();
+})();
+</script>
+
+<div class="info-box tip">
+<div class="info-box-title">Try This</div>
+<p>Compare FIFO and EDF with the same parameters. Notice how EDF prioritizes coders closest to burnout, often preventing deaths that FIFO would cause. Increase the number of coders and decrease the burnout time to see the scheduling difference more dramatically.</p>
+</div>
+</section>
+
+<hr>
+
+<section id="cheatsheet">
+<h2>Quick API Reference</h2>
+
+<h3>POSIX Threads</h3>
+<table>
+<tr><th>Function</th><th>Signature</th><th>Description</th></tr>
+<tr><td><code>pthread_create</code></td><td><code>int pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*f)(void*), void *arg)</code></td><td>Create new thread</td></tr>
+<tr><td><code>pthread_join</code></td><td><code>int pthread_join(pthread_t t, void **retval)</code></td><td>Wait for thread to finish</td></tr>
+<tr><td><code>pthread_exit</code></td><td><code>void pthread_exit(void *retval)</code></td><td>Exit calling thread</td></tr>
+<tr><td><code>pthread_detach</code></td><td><code>int pthread_detach(pthread_t t)</code></td><td>Detach thread (auto-cleanup)</td></tr>
+</table>
+
+<h3>Mutexes</h3>
+<table>
+<tr><th>Function</th><th>Signature</th><th>Description</th></tr>
+<tr><td><code>pthread_mutex_init</code></td><td><code>int pthread_mutex_init(pthread_mutex_t *m, const pthread_mutexattr_t *a)</code></td><td>Initialize mutex</td></tr>
+<tr><td><code>pthread_mutex_lock</code></td><td><code>int pthread_mutex_lock(pthread_mutex_t *m)</code></td><td>Acquire lock (blocking)</td></tr>
+<tr><td><code>pthread_mutex_trylock</code></td><td><code>int pthread_mutex_trylock(pthread_mutex_t *m)</code></td><td>Try acquire (non-blocking)</td></tr>
+<tr><td><code>pthread_mutex_unlock</code></td><td><code>int pthread_mutex_unlock(pthread_mutex_t *m)</code></td><td>Release lock</td></tr>
+<tr><td><code>pthread_mutex_destroy</code></td><td><code>int pthread_mutex_destroy(pthread_mutex_t *m)</code></td><td>Destroy mutex</td></tr>
+</table>
+
+<h3>Condition Variables</h3>
+<table>
+<tr><th>Function</th><th>Signature</th><th>Description</th></tr>
+<tr><td><code>pthread_cond_init</code></td><td><code>int pthread_cond_init(pthread_cond_t *c, const pthread_condattr_t *a)</code></td><td>Initialize condition variable</td></tr>
+<tr><td><code>pthread_cond_wait</code></td><td><code>int pthread_cond_wait(pthread_cond_t *c, pthread_mutex_t *m)</code></td><td>Wait (atomically unlocks mutex)</td></tr>
+<tr><td><code>pthread_cond_timedwait</code></td><td><code>int pthread_cond_timedwait(pthread_cond_t *c, pthread_mutex_t *m, const struct timespec *t)</code></td><td>Wait with timeout</td></tr>
+<tr><td><code>pthread_cond_signal</code></td><td><code>int pthread_cond_signal(pthread_cond_t *c)</code></td><td>Wake one waiter</td></tr>
+<tr><td><code>pthread_cond_broadcast</code></td><td><code>int pthread_cond_broadcast(pthread_cond_t *c)</code></td><td>Wake all waiters</td></tr>
+<tr><td><code>pthread_cond_destroy</code></td><td><code>int pthread_cond_destroy(pthread_cond_t *c)</code></td><td>Destroy condition variable</td></tr>
+</table>
+
+<h3>Time Functions</h3>
+<table>
+<tr><th>Function</th><th>Signature</th><th>Description</th></tr>
+<tr><td><code>gettimeofday</code></td><td><code>int gettimeofday(struct timeval *tv, struct timezone *tz)</code></td><td>Get current time (us precision)</td></tr>
+<tr><td><code>usleep</code></td><td><code>int usleep(useconds_t usec)</code></td><td>Sleep for microseconds</td></tr>
+</table>
+
+<h3>Common Errors</h3>
+<table>
+<tr><th>Return Value</th><th>Meaning</th></tr>
+<tr><td><code>0</code></td><td>Success</td></tr>
+<tr><td><code>EBUSY</code></td><td>Mutex already locked (trylock)</td></tr>
+<tr><td><code>ETIMEDOUT</code></td><td>Condition wait timed out</td></tr>
+<tr><td><code>EINVAL</code></td><td>Invalid argument</td></tr>
+<tr><td><code>EDEADLK</code></td><td>Deadlock detected</td></tr>
+</table>
+</section>
+
+<section id="resources">
+<h2>Resources</h2>
+<ul>
+<li><a href="https://man7.org/linux/man-pages/man7/pthreads.7.html" target="_blank">Linux pthreads man page</a></li>
+<li><a href="https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/pthread.h.html" target="_blank">POSIX.1-2017 pthread.h specification</a></li>
+<li><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf" target="_blank">OSTEP: Threads and Locks (free book chapter)</a></li>
+<li><a href="https://pages.cs.wisc.edu/~remzi/OSTEP/threads-cv.pdf" target="_blank">OSTEP: Condition Variables (free book chapter)</a></li>
+<li><a href="https://en.wikipedia.org/wiki/Dining_philosophers_problem" target="_blank">Dining Philosophers Problem - Wikipedia</a></li>
+<li><a href="https://en.wikipedia.org/wiki/Earliest_deadline_first_scheduling" target="_blank">Earliest Deadline First - Wikipedia</a></li>
+</ul>
+
+<div class="info-box success">
+<div class="info-box-title">Next Steps</div>
+<p>Challenges to deepen your understanding:</p>
+<ol>
+<li>Implement the heap from scratch without looking at the guide</li>
+<li>Add starvation detection: log if a coder waits too long even without burnout</li>
+<li>Implement a third scheduler: Round-Robin with time quantum</li>
+<li>Measure and compare FIFO vs EDF average wait times</li>
+<li>Add a GUI visualization using a library like SDL2 or raylib</li>
+<li>Implement preemption: force-release dongles from a coder if another is about to burn out</li>
+</ol>
+</div>
+</section>
+
+<footer style="margin-top:80px;padding-top:24px;border-top:1px solid var(--border);text-align:center;color:var(--text-secondary);font-size:0.85rem;">
+<p>Codexion Learning Guide &mdash; Master concurrency with POSIX threads</p>
+<p style="margin-top:8px;">Happy coding, and may your threads never deadlock!</p>
+</footer>
+</main>
+</div>
+
+<script>
+// Sidebar collapse/expand (desktop) & open/close (mobile)
+(function() {
+    const sidebar = document.querySelector('.sidebar');
+    const body = document.body;
+    const btn = document.getElementById('sidebarToggleBtn');
+    const MOBILE_BREAKPOINT = 1024;
+
+    function isMobile() { return window.innerWidth <= MOBILE_BREAKPOINT; }
+
+    function applyDesktopState(collapsed) {
+        sidebar.classList.toggle('collapsed', collapsed);
+        body.classList.toggle('sidebar-collapsed', collapsed);
+        btn.classList.toggle('shifted', !collapsed);
+    }
+
+    // Restore saved desktop preference
+    const saved = localStorage.getItem('codexionSidebarCollapsed') === '1';
+    if (!isMobile()) {
+        applyDesktopState(saved);
+    } else {
+        btn.classList.remove('shifted');
+    }
+
+    window.toggleSidebar = function() {
+        if (isMobile()) {
+            sidebar.classList.toggle('open');
+        } else {
+            const collapsed = !sidebar.classList.contains('collapsed');
+            applyDesktopState(collapsed);
+            localStorage.setItem('codexionSidebarCollapsed', collapsed ? '1' : '0');
+        }
+    };
+
+    // Keep state sane when resizing across the breakpoint
+    window.addEventListener('resize', function() {
+        if (isMobile()) {
+            sidebar.classList.remove('collapsed');
+            body.classList.remove('sidebar-collapsed');
+            btn.classList.remove('shifted');
+        } else {
+            sidebar.classList.remove('open');
+            const collapsed = localStorage.getItem('codexionSidebarCollapsed') === '1';
+            applyDesktopState(collapsed);
+        }
+    });
+})();
+
+// Active nav highlighting
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav-link');
+function highlightNav() {
+    let current = '';
+    sections.forEach(section => {
+        if (scrollY >= section.offsetTop - 100) {
+            current = section.getAttribute('id');
+        }
+    });
+    navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) {
+            link.classList.add('active');
+        }
+    });
+}
+window.addEventListener('scroll', highlightNav);
+highlightNav();
+</script>
+</body>
+</html>
