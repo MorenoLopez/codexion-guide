@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">  
 <meta name="google-site-verification" content="I-v-239LCd_QsToC1oPc1-MSE3Ay52i3LIlDESz8ayQ" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Codexion Learning Guide — POSIX Threads, Mutexes & Concurrency</title>
 <style>
 :root {
@@ -151,8 +151,11 @@ section { scroll-margin-top:20px; }
 .sim-btn { background:var(--bg-tertiary); color:var(--text-primary); border:1px solid var(--border); padding:8px 16px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.9rem; transition:all 0.2s; }
 .sim-btn:hover { background:var(--accent); color:var(--bg-primary); border-color:var(--accent); }
 .sim-btn.active { background:var(--success); color:var(--bg-primary); border-color:var(--success); }
-.sim-stats { display:flex; gap:24px; margin-top:12px; font-size:0.85rem; color:var(--text-secondary); }
+.sim-stats { display:flex; gap:24px; margin-top:12px; font-size:0.85rem; color:var(--text-secondary); flex-wrap:wrap; }
 .sim-stat span { color:var(--text-primary); font-weight:600; }
+.sim-controls label { display:flex; align-items:center; gap:8px; }
+.sim-controls input[type="range"] { accent-color:var(--accent); }
+.sim-val { color:var(--accent-hover); font-weight:700; min-width:2.5em; display:inline-block; text-align:right; }
 
 @media (max-width:1024px) {
   .sidebar { transform:translateX(-100%); transition:transform 0.3s; }
@@ -214,6 +217,14 @@ section { scroll-margin-top:20px; }
 <section id="intro">
 <h2>Introduction</h2>
 <p><strong>Codexion</strong> is a concurrency challenge that models a real-world resource contention problem. Multiple coders (threads) sit around a shared Quantum Compiler and compete for USB dongles (mutex-protected resources) to compile their code. The simulation must prevent burnout (deadline misses) while fairly arbitrating access to limited resources.</p>
+
+<div class="info-box purple">
+<div class="info-box-title">If you've never touched threads before, start here</div>
+<p>Every program you've written so far probably ran <strong>one instruction at a time, in order</strong> — like a single cook working alone in a kitchen. Concurrency means putting several cooks in that same kitchen at the same time, sharing the same knives, the same stove, the same counter space. Nothing about the recipes changes, but suddenly you have to answer new questions: what happens if two cooks reach for the same knife at once? What if one cook is waiting for the stove to free up — should they stand there staring at it, or go chop vegetables and check back later? Codexion is a deliberately small, concrete kitchen (8 coders, N dongles) built so you can reason about these questions without getting lost in a huge codebase. Every concept in this guide (threads, mutexes, condition variables, scheduling) is really just a formal answer to "how do multiple cooks share one kitchen safely and efficiently?"</p>
+</div>
+
+<p>Don't worry if terms like "thread", "mutex", or "race condition" mean nothing to you yet — Chapters 1 to 8 build them up one at a time, starting from first principles, before Chapters 9 to 12 assemble them into the full Codexion project. Read them in order the first time through; each chapter leans on the previous one.</p>
+
 <p>This guide will teach you every concept you need to build Codexion from scratch:</p>
 <ul>
 <li><strong>POSIX Threads</strong> — Creating and managing concurrent execution flows</li>
@@ -244,6 +255,23 @@ section { scroll-margin-top:20px; }
 <li>Scheduling can be <code>fifo</code> (arrival order) or <code>edf</code> (earliest deadline first)</li>
 <li>A <strong>monitor thread</strong> detects burnout and stops the simulation</li>
 </ul>
+
+<h3>Walking Through One Coder's Life, Step by Step</h3>
+<p>Before diving into code, it helps to trace exactly what happens to a single coder, in plain English, from the moment the program starts:</p>
+<ol>
+<li>The coder is created as a thread and immediately records the current time as their "last compile" timestamp — the burnout clock starts ticking right away, even before they've compiled anything.</li>
+<li>They try to pick up their left and right dongle. If either is currently held by a neighbour, or is still in cooldown, they cannot proceed — they must wait (Chapters 2 and 4 explain exactly how that waiting should happen without wasting CPU).</li>
+<li>Once they hold both dongles, they <strong>compile</strong> for <code>time_to_compile</code> ms. This is the only moment that resets their burnout clock and increments their compile counter.</li>
+<li>They release both dongles (each now enters cooldown for <code>dongle_cooldown</code> ms) and move on to <strong>debug</strong> for <code>time_to_debug</code> ms, then <strong>refactor</strong> for <code>time_to_refactor</code> ms — these two phases don't need any dongle at all.</li>
+<li>They loop back to step 2 and try to compile again, unless they've already reached <code>compiles_required</code> compiles, in which case their thread function returns and they're done.</li>
+<li>In parallel, completely independently, a <strong>monitor thread</strong> is constantly comparing "now" against every coder's last-compile timestamp plus <code>time_to_burnout</code>. The instant any coder crosses that line without having compiled again, the monitor declares a burnout and the whole simulation stops.</li>
+</ol>
+<p>Every later chapter is really about implementing one piece of this list correctly and safely when it runs <code>N</code> times in parallel instead of once.</p>
+
+<div class="info-box warning">
+<div class="info-box-title">A subtlety beginners often miss</div>
+<p>The burnout deadline is not "N seconds after the program starts" — it's a <em>rolling</em> deadline measured from each coder's <em>own last compile</em>. A coder who just compiled is perfectly safe even if another coder is about to burn out. This is exactly why a scheduler that ignores deadlines (FIFO) can let a coder starve to death while happily serving everyone else in arrival order.</p>
+</div>
 </section>
 
 <section id="setup">
@@ -272,8 +300,25 @@ section { scroll-margin-top:20px; }
 <h2><span class="chapter-number">1</span>POSIX Threads</h2>
 <p>A <strong>thread</strong> is an independent execution flow within a process. While a process has its own memory space, threads within the same process share that memory. This makes threads lightweight but requires synchronization to prevent conflicts.</p>
 
+<h3>Process vs Thread — The Foundation</h3>
+<p>Before threads make sense, it helps to be precise about what a <strong>process</strong> is. When you run <code>./codexion</code>, the operating system creates a process: it gets its own private virtual memory space (its own view of RAM, isolated from every other program), its own file descriptors, its own program counter. Two processes cannot accidentally overwrite each other's variables — the OS enforces that isolation with page tables and hardware memory protection.</p>
+<p>A <strong>thread</strong> lives <em>inside</em> a process. When you call <code>pthread_create</code>, you are not creating a new isolated program — you are creating a second (or third, or eighth) execution flow that runs concurrently but shares the <em>same</em> memory space as every other thread in that process: the same global variables, the same heap-allocated structures, the same file descriptors. This is precisely why threads are useful (no expensive copying or message-passing needed to share data) and precisely why they are dangerous (any thread can silently corrupt data another thread is using, with no OS protection stopping it).</p>
+<table>
+<tr><th>Aspect</th><th>Process</th><th>Thread</th></tr>
+<tr><td>Memory space</td><td>Private, isolated</td><td>Shared with sibling threads</td></tr>
+<tr><td>Creation cost</td><td>Expensive (new address space)</td><td>Cheap (reuses process memory)</td></tr>
+<tr><td>Communication</td><td>Needs IPC (pipes, sockets, shared memory)</td><td>Direct — just read/write a shared variable</td></tr>
+<tr><td>Crash isolation</td><td>One process crashing doesn't affect others</td><td>One thread crashing (segfault) kills the whole process</td></tr>
+</table>
+
+<h3>What "Concurrent" Actually Means on Real Hardware</h3>
+<p>On a machine with a single CPU core, the operating system's scheduler rapidly switches between threads (a few milliseconds each), giving the <em>illusion</em> of simultaneous execution — this is <strong>concurrency</strong>. On a machine with multiple cores, threads can genuinely run at the exact same instant on different cores — this is <strong>parallelism</strong>. Codexion's correctness requirements (no lost updates, no missed deadlines) must hold in both cases: your synchronization code cannot assume "only one thread is truly running at a time", because on a multi-core machine that assumption is simply false.</p>
+
 <img src="images/thread_lifecycle.png" class="concept-img" alt="Thread Lifecycle">
 <p class="img-caption">Figure 2: The lifecycle of a POSIX thread from creation to termination.</p>
+
+<h3>The Return Type Puzzle: <code>void *</code></h3>
+<p>Beginners are often confused by why a thread's start function must have the exact signature <code>void *f(void *arg)</code>. The answer is that <code>pthread_create</code> is a single, generic C function that has no idea what data your thread needs or returns — it can only work with a signature that fits <em>any</em> use case. <code>void *</code> ("pointer to anything") is C's way of saying "I don't know or care about the type, you cast it back to whatever it really is inside the function." The argument you pass in comes back out unchanged in the corresponding <code>pthread_join</code>'s second parameter if you called <code>pthread_exit</code> with a return value, letting a thread hand a result back to whoever joins it.</p>
 
 <h3>Creating a Thread</h3>
 <pre data-lang="c"><code><span class="macro">#include</span> <span class="string">&lt;pthread.h&gt;</span>
@@ -332,11 +377,26 @@ section { scroll-margin-top:20px; }
 <div class="info-box-title">Race Condition Warning</div>
 <p>If you pass <code>&amp;i</code> instead of <code>&amp;ids[i]</code> in the loop above, all threads might read the same value because <code>i</code> changes in the main thread while child threads are still starting up. This is a classic concurrency bug.</p>
 </div>
+
+<h3>What Happens If You Forget <code>pthread_join</code>?</h3>
+<p>If <code>main()</code> returns (or calls <code>exit()</code>) before joining every thread it created, the whole process — and every thread inside it — is terminated immediately, mid-work, with no cleanup. This is one of the most common beginner bugs: the program appears to "not print anything" or "stop halfway", when really the child threads simply never got the chance to finish because <code>main</code> raced ahead and ended the process first. In Codexion, <code>main</code> must join every coder thread <em>and</em> the monitor thread before returning, in the right order (see Chapter 11, Part F), or you will lose output non-deterministically — the bug will even seem to appear and disappear between runs, which is a hallmark of concurrency bugs in general.</p>
+
+<h3>Joinable vs Detached — Two Different Lifecycles</h3>
+<p>By default, a thread is <strong>joinable</strong>: its resources (like its exit status) stay alive after it finishes, until some other thread calls <code>pthread_join</code> on it — exactly like a zombie process waiting to be reaped by <code>wait()</code>. If nobody ever joins it, that memory leaks for the lifetime of the process. A <strong>detached</strong> thread (via <code>pthread_detach</code>) is the opposite: the system cleans it up automatically the moment it finishes, but as a trade-off you can never <code>pthread_join</code> it afterwards to retrieve a result or simply know it's done. Codexion uses joinable threads throughout, because the monitor and main function genuinely need to know when coders have finished.</p>
+
+<div class="info-box tip">
+<div class="info-box-title">Mental model to remember</div>
+<p>Think of <code>pthread_create</code> as "spawn a worker and hand me a ticket", and <code>pthread_join</code> as "wait in line and redeem that ticket." If you throw the ticket away without redeeming it (never calling <code>pthread_join</code> on a joinable thread), the worker's completion status just sits there, unclaimed, wasting a small amount of kernel memory until your process exits.</p>
+</div>
 </section>
 
 <section id="ch2">
 <h2><span class="chapter-number">2</span>Mutexes</h2>
 <p>A <strong>mutex</strong> (mutual exclusion lock) ensures that only one thread can access a critical section at a time. Think of it as a lock on a door: whoever holds the key can enter, everyone else waits outside.</p>
+
+<h3>What Exactly Is a "Critical Section"?</h3>
+<p>A <strong>critical section</strong> is any piece of code that reads or writes shared state (a global variable, a struct on the heap, a shared array) in a way that would break if two threads executed it at the exact same time. Not all code needs protection — a thread doing purely local, private computation (like sleeping for <code>time_to_compile</code> ms, which touches no shared memory) needs no lock at all. The skill of concurrent programming is largely about correctly identifying <em>which</em> lines are critical sections and locking exactly those — no more (or you lose parallelism for no reason), no less (or you get bugs).</p>
+<p>In Codexion, examples of critical sections include: incrementing a coder's <code>compile_count</code>, changing a dongle's <code>holder_id</code>, checking or setting <code>sim_over</code>, and printing a log line (so two coders' output lines don't interleave character-by-character). Each of these needs its own mutex, or a shared one, protecting it.</p>
 
 <img src="images/mutex_concept.png" class="concept-img" alt="Mutex Concept">
 <p class="img-caption">Figure 3: Thread 1 holds the mutex and accesses the shared resource. Threads 2 and 3 wait.</p>
@@ -366,6 +426,12 @@ shared_counter++;
 <span class="comment">/* Thread A writes counter = 6 */</span>
 <span class="comment">/* Thread B writes counter = 6 (overwrites A's update!) */</span>
 <span class="comment">/* Expected: 7, Actual: 6 — LOST UPDATE */</span></code></pre>
+
+<h3>Blocking Is the Whole Point</h3>
+<p>It's worth pausing on what "<code>pthread_mutex_lock</code> blocks if already locked" really means in practice: the calling thread is put to sleep by the operating system — it consumes essentially zero CPU while waiting — and is automatically woken up by the kernel the moment the mutex becomes free. You do not need (and should never write) a loop like <code>while (locked) {}</code> around a mutex; that would be a <strong>busy-wait</strong> that burns 100% of a CPU core doing nothing useful. The mutex primitive already does the efficient sleep-and-wake for you.</p>
+
+<h3>Granularity: One Big Lock vs Many Small Locks</h3>
+<p>A common beginner instinct is to protect an entire program with a single global mutex, locked at the very start of every thread's work and unlocked at the very end. This is <em>correct</em> (no race condition can happen) but destroys the whole point of using threads: if only one coder can ever be "inside the lock" at a time, your 8 coders run one after another, not concurrently, and you gain nothing over a single-threaded program. Codexion is specifically designed to force you to think about granularity: each dongle typically gets its <em>own</em> mutex, so a coder waiting for dongle 3 does not block a completely unrelated coder who only needs dongles 5 and 6. Locking too coarsely kills performance; locking too finely (or inconsistently) reintroduces race conditions and deadlocks. There is no formula — it's a design decision you justify by reasoning about which operations truly must be mutually exclusive.</p>
 
 <h3>Try-Lock (Non-Blocking)</h3>
 <p><code>pthread_mutex_trylock</code> attempts to acquire the lock without blocking. It returns <code>0</code> on success, <code>EBUSY</code> if already locked:</p>
@@ -400,6 +466,11 @@ shared_counter++;
 <section id="ch3">
 <h2><span class="chapter-number">3</span>Condition Variables</h2>
 <p>A <strong>condition variable</strong> allows threads to wait for a condition to become true without consuming CPU. Unlike a mutex which only provides mutual exclusion, a condition variable provides <strong>synchronization</strong> — threads can sleep until signaled to wake up.</p>
+
+<div class="info-box purple">
+<div class="info-box-title">Analogy: the waiting room</div>
+<p>A mutex is like a single-occupancy restroom key: it only ever answers "can I go in right now?". A condition variable is the waiting room next to it, with a receptionist: a thread that can't proceed yet doesn't just stand at the door repeatedly rattling the handle (that would be spin-waiting — see below), it sits down and is <em>woken up by the receptionist</em> exactly when something relevant changes. It still has to re-check for itself that it's really its turn (someone else might have slipped in first), but it isn't wasting energy while it waits. This "sit and be woken up" behaviour is exactly what a coder thread should do while waiting for its two dongles to become free, instead of hammering <code>pthread_mutex_trylock</code> in a tight loop.</p>
+</div>
 
 <h3>Why Not Just Spin?</h3>
 <pre data-lang="c"><code><span class="comment">/* BAD: Spin-waiting wastes 100% CPU */</span>
@@ -477,6 +548,17 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <span class="keyword">if</span> (rc == ETIMEDOUT)
     <span class="function">printf</span>(<span class="string">"Timeout!\n"</span>);</code></pre>
 
+<h3>The "Lost Wakeup" Bug — Why the Mutex Is Mandatory</h3>
+<p>It might seem redundant that <code>pthread_cond_wait</code> forces you to hold a mutex. Here's exactly the bug that requirement prevents. Imagine, incorrectly, that checking the condition and waiting on it were two separate, unprotected steps:</p>
+<pre data-lang="c"><code><span class="comment">/* BROKEN: condition check and wait are not atomic */</span>
+<span class="keyword">if</span> (!ready)              <span class="comment">/* (1) consumer checks: not ready yet */</span>
+{
+    <span class="comment">/* --- producer runs right here: sets ready=1, signals --- */</span>
+    <span class="comment">/*     but NOBODY is waiting on the cond var yet!        */</span>
+    <span class="function">pthread_cond_wait</span>(&amp;cond, &amp;lock); <span class="comment">/* (2) consumer waits — forever */</span>
+}</code></pre>
+<p>Between steps (1) and (2), the producer thread could run to completion, set the flag, and signal — but since the consumer wasn't registered as a waiter yet, that signal is lost forever, and the consumer sleeps forever waiting for a wakeup that already happened. This is called a <strong>lost wakeup</strong>, and it's exactly why <code>pthread_cond_wait</code> takes the mutex as a parameter: it guarantees that "checking the condition" and "starting to wait" happen as one atomic, uninterruptible step relative to the thread doing the signalling (which must also hold the same mutex while it changes the shared condition and signals). This is the single most important invariant to internalize about condition variables.</p>
+
 <div class="info-box warning">
 <div class="info-box-title">Important</div>
 <p><code>pthread_cond_wait</code> always requires a locked mutex. It atomically releases the mutex and puts the thread to sleep. When woken, it re-acquires the mutex before returning. This prevents lost wakeups.</p>
@@ -486,6 +568,15 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <section id="ch4">
 <h2><span class="chapter-number">4</span>The Dining Philosophers Problem</h2>
 <p>Codexion is a variation of the <strong>Dining Philosophers</strong> — a classic concurrency problem where N philosophers sit at a round table with N forks. Each philosopher needs two forks to eat. The challenge: prevent deadlock and starvation.</p>
+
+<h3>Two Different Failure Modes — Don't Confuse Them</h3>
+<p>Beginners often lump "deadlock" and "starvation" together, but they are distinct failures with distinct causes, and Codexion explicitly tests for both:</p>
+<table>
+<tr><th>Failure</th><th>What happens</th><th>How Codexion would show it</th></tr>
+<tr><td><strong>Deadlock</strong></td><td>Every thread is permanently blocked waiting on another thread in the group — nobody can ever make progress again.</td><td>All coders hold one dongle and wait forever for their second. The whole program hangs, with no more output, forever.</td></tr>
+<tr><td><strong>Starvation</strong></td><td>The system as a whole keeps making progress, but one specific thread is unlucky enough to never (or rarely) get served.</td><td>Coders 1, 2, 3... keep compiling happily, but coder 4 keeps losing the race for dongles every time and eventually burns out — the program keeps running right up until that burnout is detected.</td></tr>
+</table>
+<p>A scheduler can fix one without fixing the other: naive FIFO prevents deadlock (nobody holds a dongle forever without eventually being served) but does not guarantee that the coder closest to burnout gets served first — which is exactly the gap that EDF scheduling (Chapter 6) closes.</p>
 
 <img src="images/deadlock.png" class="concept-img" alt="Deadlock Scenario">
 <p class="img-caption">Figure 4: Deadlock — every coder holds one dongle and waits for another.</p>
@@ -499,7 +590,18 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <span class="function">pthread_mutex_unlock</span>(&amp;right_dongle);
 <span class="function">pthread_mutex_unlock</span>(&amp;left_dongle);</code></pre>
 
+<h3>Why Deadlock Happens: The Four Coffman Conditions</h3>
+<p>Deadlock is not random bad luck — it is a precise, well-understood phenomenon that can <em>only</em> occur if all four of the following conditions hold simultaneously. Understanding them tells you exactly which lever to pull to prevent it:</p>
+<ol>
+<li><strong>Mutual exclusion</strong> — a resource (a dongle) can only be held by one thread at a time.</li>
+<li><strong>Hold and wait</strong> — a thread holding one resource (its left dongle) is waiting to acquire another (its right dongle) without releasing what it already has.</li>
+<li><strong>No preemption</strong> — a resource cannot be forcibly taken away from the thread holding it; it can only be released voluntarily.</li>
+<li><strong>Circular wait</strong> — there exists a cycle of threads where each is waiting for a resource held by the next one in the cycle (coder 1 waits for coder 2's dongle, who waits for coder 3's, ..., who waits for coder 1's).</li>
+</ol>
+<p>Break <em>any one</em> of these four conditions and deadlock becomes structurally impossible, no matter how unlucky your thread scheduling is. Each solution below breaks a different one.</p>
+
 <h3>Solution 1: Asymmetric Lock Ordering</h3>
+<p>This solution breaks <strong>circular wait</strong>: if every coder agrees on a global ordering for picking up dongles (instead of everyone symmetrically starting with "my left one"), the cycle in condition 4 can never form — there will always be at least one coder who picked up the lower-numbered dongle first and can therefore always get the second one.</p>
 <p>Force an ordering: odd-numbered coders pick left first, even-numbered pick right first. This breaks the circular wait condition:</p>
 <pre data-lang="c"><code><span class="keyword">if</span> (coder_id % <span class="number">2</span> == <span class="number">0</span>)
 {
@@ -547,6 +649,9 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <section id="ch5">
 <h2><span class="chapter-number">5</span>Time in C</h2>
 <p>Precise timing is critical for Codexion. You need to measure elapsed time in milliseconds, compute deadlines, and implement cooldowns.</p>
+
+<h3>Why Milliseconds, and Why <code>long long</code>?</h3>
+<p>Codexion's arguments (<code>time_to_burnout</code>, <code>time_to_compile</code>, etc.) are given in milliseconds because that's precise enough for human-observable timing (sub-millisecond precision would be pointless — thread scheduling jitter alone is often a millisecond or more) while staying easy to reason about mentally, unlike raw microseconds. The timestamps themselves are stored as <code>long long</code> (a 64-bit integer, at least 8 bytes) rather than a plain <code>int</code> (usually 4 bytes, max ~2.1 billion) because <code>gettimeofday</code> returns seconds since 1 January 1970 — that value alone is already over 1.7 billion and counting, and once you multiply it by 1000 to get milliseconds it would silently overflow a 32-bit <code>int</code> and wrap around to a negative number, corrupting every deadline comparison in your program. This is a real, common beginner bug — always use a 64-bit type for absolute millisecond timestamps.</p>
 
 <h3>gettimeofday</h3>
 <p>Returns the current time with microsecond precision:</p>
@@ -596,6 +701,11 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
     }
     <span class="keyword">return</span> ts;
 }</code></pre>
+
+<div class="info-box danger">
+<div class="info-box-title">Wall Clock vs Monotonic Clock</div>
+<p><code>gettimeofday</code> reads the system's <strong>wall clock</strong> (real calendar time), which can jump backwards or forwards if the OS resynchronizes it (e.g. via NTP) while your simulation is running — a burnout check like <code>now - last_compile &gt; time_to_burnout</code> could then behave unpredictably. In production-grade real-time code you would prefer <code>clock_gettime(CLOCK_MONOTONIC, ...)</code>, which never jumps backwards, precisely because it doesn't represent calendar time at all — only "time since some arbitrary fixed point." Many school subjects (and this guide) still teach <code>gettimeofday</code> for simplicity since the risk is negligible over a program that runs for a few seconds, but it's worth knowing the more robust alternative exists.</p>
+</div>
 </section>
 
 <section id="ch6">
@@ -665,15 +775,37 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
     <span class="type">int</span>          capacity;
 } <span class="type">t_edf_queue</span>;</code></pre>
 
+<h3>A Worked Example: Watch FIFO Fail Where EDF Succeeds</h3>
+<p>Suppose two coders both become ready to compile at the same instant (<code>t = 0</code>), but only one dongle pair is free at a time so they can't be served simultaneously. Say <code>time_to_burnout = 100ms</code> for both, but coder A last compiled at <code>t = -80</code> (so their deadline is <code>t = 20</code>) while coder B last compiled at <code>t = -10</code> (deadline <code>t = 90</code>). Coder A arrived in the queue microseconds after coder B purely by chance.</p>
+<table>
+<tr><th>Scheduler</th><th>Serves first</th><th>Outcome</th></tr>
+<tr><td>FIFO</td><td>Coder B (arrived first)</td><td>Coder A must wait; if serving B takes long enough, A crosses its deadline at <code>t = 20</code> and <strong>burns out</strong>, even though A was objectively more urgent.</td></tr>
+<tr><td>EDF</td><td>Coder A (earlier deadline, <code>t = 20 &lt; 90</code>)</td><td>A compiles first and resets its deadline; B still has until <code>t = 90</code> to be served, comfortably surviving.</td></tr>
+</table>
+<p>This is the entire reason Codexion asks you to implement two schedulers: it's not a stylistic choice, it's a demonstration that <strong>arrival order and urgency are different things</strong>, and a scheduler that only knows about arrival order can let an urgent thread starve even while being perfectly "fair" by its own definition.</p>
+
 <div class="info-box purple">
 <div class="info-box-title">EDF Optimality</div>
-<p>EDF is <strong>optimal</strong> for uniprocessor scheduling: if any schedule can meet all deadlines, EDF will too. This makes it ideal for Codexion's burnout prevention.</p>
+<p>EDF is <strong>optimal</strong> for uniprocessor scheduling: if any schedule can meet all deadlines, EDF will too. This makes it ideal for Codexion's burnout prevention. Note the precise meaning of "optimal" here: it means <em>if a feasible schedule exists at all</em>, EDF will find it. It does <em>not</em> mean EDF can rescue an overloaded system — if your parameters simply don't leave enough time for every coder to be served before their deadlines (e.g. <code>time_to_compile</code> too large relative to <code>time_to_burnout</code> and the number of coders sharing dongles), even EDF will eventually miss a deadline. That's expected, correct behaviour, not a bug.</p>
 </div>
 </section>
 
 <section id="ch7">
 <h2><span class="chapter-number">7</span>Priority Queue / Min-Heap in C</h2>
 <p>C89 has no standard priority queue. You must implement a <strong>binary min-heap</strong> yourself. A heap is a complete binary tree where each parent is smaller than its children.</p>
+
+<h3>Why a Plain Array, Not a Pointer-Based Tree?</h3>
+<p>It looks strange the first time: a "binary tree" implemented as a flat <code>t_heap_node *nodes</code> array with no <code>left</code>/<code>right</code> pointers anywhere. This works because a <strong>complete</strong> binary tree (every level full except possibly the last, filled left-to-right — which a heap always is by construction) has a predictable, gap-free shape, so its nodes can be numbered 0, 1, 2, 3... in level order and stored at exactly those array indices. The formulas <code>parent = (i-1)/2</code>, <code>left = 2*i+1</code>, <code>right = 2*i+2</code> then compute tree relationships from pure arithmetic instead of following pointers. The payoff: no <code>malloc</code> per node, better CPU cache locality (neighbouring array elements are physically close in memory, unlike scattered heap-allocated nodes), and dramatically simpler code — at the cost of needing to know (or grow) a capacity up front.</p>
+
+<h3>Trace: Inserting Deadlines 50, 20, 80, 10</h3>
+<p>Walking through <code>heap_insert</code> by hand builds real intuition. Starting from an empty heap, insert coders with deadlines 50, then 20, then 80, then 10 (lower deadline = higher priority = should end up closer to the root):</p>
+<ul>
+<li>Insert 50 → array <code>[50]</code>. Only element, nothing to compare — it's the root.</li>
+<li>Insert 20 → appended at index 1: <code>[50, 20]</code>. Its parent is index 0 (value 50). Since 20 &lt; 50, swap → <code>[20, 50]</code>.</li>
+<li>Insert 80 → appended at index 2: <code>[20, 50, 80]</code>. Its parent is index 0 (value 20). Since 80 &gt; 20, no swap needed — heap property already holds.</li>
+<li>Insert 10 → appended at index 3: <code>[20, 50, 80, 10]</code>. Its parent is index 1 (value 50, computed as <code>(3-1)/2 = 1</code>). Since 10 &lt; 50, swap → <code>[20, 10, 80, 50]</code>. Continue up: 10's new parent is index 0 (value 20, <code>(1-1)/2 = 0</code>). Since 10 &lt; 20, swap again → <code>[10, 20, 80, 50]</code>. Now at the root, stop.</li>
+</ul>
+<p>Final array <code>[10, 20, 80, 50]</code> — extracting the min always returns 10 first, exactly the coder closest to burnout, in O(log n) work per operation rather than an O(n) linear scan through every waiting coder.</p>
 
 <h3>Heap Structure</h3>
 <pre data-lang="c"><code><span class="keyword">typedef struct</span> <span class="type">s_heap_node</span>
@@ -786,6 +918,9 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <section id="ch8">
 <h2><span class="chapter-number">8</span>The Monitor Pattern</h2>
 <p>A <strong>monitor</strong> is a design pattern where a dedicated thread continuously checks a condition and takes action when it becomes true. In Codexion, the monitor detects burnout.</p>
+
+<h3>Polling vs Event-Driven — A Deliberate Trade-off</h3>
+<p>Notice that the monitor thread below uses <code>usleep(1000)</code> in a loop — this is <strong>polling</strong>: repeatedly waking up and checking "has anything changed?" rather than being passively woken up only when something actually happens (which would be the <strong>event-driven</strong> style you saw with condition variables in Chapter 3). This might look like a step backwards after just learning to avoid busy-waiting, but it's the right tool here for a specific reason: burnout is defined by the <em>absence</em> of an event within a time window ("nobody compiled for this coder in the last <code>time_to_burnout</code> ms"), not by the occurrence of one. A condition variable can be signalled when something happens, but there's no clean way to signal "nothing happened for a while" — so the monitor has no choice but to periodically wake up and check the clock itself. The 1ms polling interval is a deliberate compromise: frequent enough to catch a burnout within the guide's 10ms precision requirement, infrequent enough to barely register on CPU usage (sleeping 999 microseconds out of every 1000).</p>
 
 <img src="images/monitor_thread.png" class="concept-img" alt="Monitor Thread">
 <p class="img-caption">Figure 6: The monitor thread continuously checks all coders' deadlines against the current time.</p>
@@ -1240,7 +1375,13 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 
 <section id="ch12">
 <h2><span class="chapter-number">12</span>Interactive Simulator</h2>
-<p>Experiment with the Codexion simulation directly in your browser. Adjust parameters and watch how FIFO vs EDF scheduling affects coder survival.</p>
+<p>This simulator is wired to the <strong>exact same arguments</strong> your <code>codexion</code> binary takes on the command line (see Chapter 11, Part D — <code>parse_args</code>): <code>n burn compile debug refactor required cooldown {fifo|edf}</code>. Every field below maps 1-to-1 to an <code>argv[]</code> slot, and the simulation loop underneath genuinely uses those numbers to drive timing, deadlines and the win/burnout condition — it isn't just cosmetic.</p>
+
+<div class="info-box tip">
+<div class="info-box-title">Reading the parameters as a real invocation</div>
+<p>The panel below is equivalent to running:</p>
+<pre data-lang="bash" style="margin:12px 0 0;"><code>./codexion <span id="argPreview">4 1200 400 300 300 3 100 fifo</span></code></pre>
+</div>
 
 <div class="simulator-container">
 <div class="simulator-title">Codexion Visual Simulator</div>
@@ -1250,19 +1391,29 @@ deadline.tv_sec += <span class="number">1</span>;  <span class="comment">/* Wait
 <button class="sim-btn" onclick="simPause()">Pause / Resume</button>
 <button class="sim-btn" onclick="simReset()">Reset</button>
 <select class="sim-btn" id="schedSelect" onchange="simSetScheduler(this.value)">
-<option value="fifo">FIFO Scheduler</option>
-<option value="edf">EDF Scheduler</option>
+<option value="fifo">FIFO Scheduler (argv[8])</option>
+<option value="edf">EDF Scheduler (argv[8])</option>
 </select>
 </div>
 <div class="sim-controls">
-<label style="color:var(--text-secondary);font-size:0.85rem;">Coders: <input type="range" id="numCoders" min="2" max="8" value="4" onchange="simReset()"></label>
-<label style="color:var(--text-secondary);font-size:0.85rem;">Burnout(ms): <input type="range" id="burnout" min="500" max="3000" value="1200" step="100" onchange="simReset()"></label>
-<label style="color:var(--text-secondary);font-size:0.85rem;">Cooldown(ms): <input type="range" id="cooldown" min="0" max="500" value="100" step="50" onchange="simReset()"></label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">n — Coders (argv[1]): <input type="range" id="numCoders" min="2" max="8" value="4" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="numCodersVal">4</span></label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">time_to_burnout (argv[2]): <input type="range" id="burnout" min="500" max="4000" value="1200" step="50" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="burnoutVal">1200</span>ms</label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">dongle_cooldown (argv[7]): <input type="range" id="cooldown" min="0" max="800" value="100" step="25" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="cooldownVal">100</span>ms</label>
+</div>
+<div class="sim-controls">
+<label style="color:var(--text-secondary);font-size:0.85rem;">time_to_compile (argv[3]): <input type="range" id="compileTime" min="50" max="1500" value="400" step="25" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="compileTimeVal">400</span>ms</label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">time_to_debug (argv[4]): <input type="range" id="debugTime" min="0" max="1500" value="300" step="25" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="debugTimeVal">300</span>ms</label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">time_to_refactor (argv[5]): <input type="range" id="refactorTime" min="0" max="1500" value="300" step="25" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="refactorTimeVal">300</span>ms</label>
+</div>
+<div class="sim-controls">
+<label style="color:var(--text-secondary);font-size:0.85rem;">compiles_required (argv[6]): <input type="range" id="required" min="1" max="20" value="3" step="1" oninput="simUpdateParam()" onchange="simReset()"><span class="sim-val" id="requiredVal">3</span></label>
+<label style="color:var(--text-secondary);font-size:0.85rem;">Simulation speed: <input type="range" id="simSpeed" min="1" max="8" value="2" step="1" oninput="simUpdateParam()"><span class="sim-val" id="simSpeedVal">2</span>x</label>
 </div>
 <div class="sim-stats">
 <div class="sim-stat">Time: <span id="simTime">0</span>ms</div>
 <div class="sim-stat">Status: <span id="simStatus">Ready</span></div>
 <div class="sim-stat">Compiles: <span id="simCompiles">0</span></div>
+<div class="sim-stat">Coders done: <span id="simDone">0</span>/<span id="simRequired">4</span></div>
 <div class="sim-stat">Burnouts: <span id="simBurnouts">0</span></div>
 </div>
 </div>
@@ -1284,19 +1435,25 @@ const COLORS = {
 
 class CodexionSim {
     constructor() {
-        this.numCoders = parseInt(document.getElementById('numCoders').value);
-        this.burnoutTime = parseInt(document.getElementById('burnout').value);
-        this.cooldownTime = parseInt(document.getElementById('cooldown').value);
-        this.scheduler = document.getElementById('schedSelect').value;
+        // Every field below is read straight from the argv[] equivalents (see Chapter 11, Part D)
+        this.numCoders = parseInt(document.getElementById('numCoders').value);        // argv[1] n
+        this.burnoutTime = parseInt(document.getElementById('burnout').value);        // argv[2] time_to_burnout
+        this.compileTime = parseInt(document.getElementById('compileTime').value);    // argv[3] time_to_compile
+        this.debugTime = parseInt(document.getElementById('debugTime').value);        // argv[4] time_to_debug
+        this.refactorTime = parseInt(document.getElementById('refactorTime').value);  // argv[5] time_to_refactor
+        this.compilesRequired = parseInt(document.getElementById('required').value);  // argv[6] compiles_required
+        this.cooldownTime = parseInt(document.getElementById('cooldown').value);      // argv[7] dongle_cooldown
+        this.scheduler = document.getElementById('schedSelect').value;                // argv[8] {fifo|edf}
+        this.speed = parseInt(document.getElementById('simSpeed').value);
         this.time = 0;
         this.running = false;
         this.paused = false;
-        this.speed = 2; // simulation speed multiplier
         this.coders = [];
         this.dongles = [];
         this.queue = [];
         this.burnouts = 0;
         this.totalCompiles = 0;
+        this.doneCount = 0;
         this.simOver = false;
         this.init();
     }
@@ -1306,7 +1463,7 @@ class CodexionSim {
         for (let i = 0; i < this.numCoders; i++) {
             this.coders.push({
                 id: i+1, state: 'waiting', lastCompile: now,
-                compileCount: 0, burned: false,
+                compileCount: 0, burned: false, done: false,
                 hasLeft: false, hasRight: false,
                 activityEnd: 0, x: 0, y: 0
             });
@@ -1359,17 +1516,37 @@ class CodexionSim {
 
         // Update coder states
         for (let c of this.coders) {
-            if (c.burned) continue;
+            if (c.burned || c.done) continue;
             if (c.state === 'compiling' && now >= c.activityEnd) {
                 this.releaseDongles(c);
-                c.state = 'debugging';
-                c.activityEnd = now + 300; // debug time
                 c.compileCount++;
                 this.totalCompiles++;
                 c.lastCompile = now;
+                if (c.compileCount >= this.compilesRequired) {
+                    // This coder reached compiles_required (argv[6]) — it's done, like the
+                    // real coder_routine() breaking out of its while(1) loop.
+                    c.state = 'done';
+                    c.done = true;
+                    this.doneCount++;
+                    if (this.doneCount >= this.numCoders) this.simOver = true;
+                } else if (this.debugTime > 0) {
+                    c.state = 'debugging';
+                    c.activityEnd = now + this.debugTime;
+                } else if (this.refactorTime > 0) {
+                    c.state = 'refactoring';
+                    c.activityEnd = now + this.refactorTime;
+                } else {
+                    c.state = 'waiting';
+                    this.tryRequest(c);
+                }
             } else if (c.state === 'debugging' && now >= c.activityEnd) {
-                c.state = 'refactoring';
-                c.activityEnd = now + 300; // refactor time
+                if (this.refactorTime > 0) {
+                    c.state = 'refactoring';
+                    c.activityEnd = now + this.refactorTime;
+                } else {
+                    c.state = 'waiting';
+                    this.tryRequest(c);
+                }
             } else if (c.state === 'refactoring' && now >= c.activityEnd) {
                 c.state = 'waiting';
                 this.tryRequest(c);
@@ -1378,13 +1555,21 @@ class CodexionSim {
             }
         }
 
-        // Process queue
+        // Process queue — every waiting coder goes through the SAME scheduler
+        // arbitration, whether or not its own dongles happen to be free. This
+        // mirrors the real Codexion design (Chapter 4, Solution 3): coders
+        // request access from a centralized scheduler instead of grabbing
+        // dongles directly, so a coder whose neighbours never conflict with
+        // it (e.g. opposite coders in a 4-coder ring) can't silently loop
+        // forever and starve everyone else.
         if (this.scheduler === 'fifo') {
-            for (let i = this.queue.length - 1; i >= 0; i--) {
+            // True FIFO: serve the OLDEST request first (index 0), not the newest.
+            for (let i = 0; i < this.queue.length; i++) {
                 const c = this.queue[i];
                 if (this.canAcquire(c)) {
                     this.acquire(c);
                     this.queue.splice(i, 1);
+                    i--;
                 }
             }
         } else {
@@ -1403,14 +1588,21 @@ class CodexionSim {
         // Update stats
         document.getElementById('simTime').textContent = Math.floor(this.time);
         document.getElementById('simCompiles').textContent = this.totalCompiles;
+        document.getElementById('simDone').textContent = this.doneCount;
+        document.getElementById('simRequired').textContent = this.numCoders;
         document.getElementById('simBurnouts').textContent = this.burnouts;
-        document.getElementById('simStatus').textContent = this.simOver ? (this.burnouts > 0 ? 'BURNOUT!' : 'Complete') : 'Running';
+        document.getElementById('simStatus').textContent = this.simOver
+            ? (this.burnouts > 0 ? 'BURNOUT!' : 'All coders done \u2713')
+            : 'Running';
     }
 
     tryRequest(c) {
-        if (this.canAcquire(c)) {
-            this.acquire(c);
-        } else if (!this.queue.includes(c)) {
+        // No instant self-service: even if this coder's own dongles are free
+        // right now, it must join the same queue as everyone else and be
+        // arbitrated by the scheduler (FIFO order or EDF deadline) below.
+        // This is what actually enforces turn-taking between non-conflicting
+        // coders instead of letting them monopolize the table forever.
+        if (!this.queue.includes(c)) {
             this.queue.push(c);
         }
     }
@@ -1431,7 +1623,7 @@ class CodexionSim {
         c.hasLeft = true;
         c.hasRight = true;
         c.state = 'compiling';
-        c.activityEnd = this.time + 400; // compile time
+        c.activityEnd = this.time + this.compileTime; // argv[3] time_to_compile
     }
 
     releaseDongles(c) {
@@ -1497,6 +1689,9 @@ class CodexionSim {
             if (c.burned) {
                 ctx.fillStyle = '#f85149';
                 ctx.strokeStyle = '#fff';
+            } else if (c.done) {
+                ctx.fillStyle = '#161b22';
+                ctx.strokeStyle = COLORS.compiling;
             } else {
                 ctx.fillStyle = COLORS.coder[c.id - 1];
                 ctx.strokeStyle = '#fff';
@@ -1507,7 +1702,8 @@ class CodexionSim {
 
             // State ring
             const stateColors = {compiling: COLORS.compiling, debugging: COLORS.debugging,
-                                refactoring: COLORS.refactoring, waiting: COLORS.waiting, burned: COLORS.burned};
+                                refactoring: COLORS.refactoring, waiting: COLORS.waiting,
+                                burned: COLORS.burned, done: '#3fb950'};
             ctx.beginPath();
             ctx.arc(c.x, c.y, r + 4, 0, Math.PI * 2);
             ctx.strokeStyle = stateColors[c.state] || COLORS.waiting;
@@ -1525,8 +1721,8 @@ class CodexionSim {
             ctx.font = '10px sans-serif';
             ctx.fillText(c.state.toUpperCase(), c.x, c.y + r + 14);
 
-            // Burnout bar
-            if (!c.burned) {
+            // Burnout bar + compile progress
+            if (!c.burned && !c.done) {
                 const elapsed = this.time - c.lastCompile;
                 const pct = Math.min(elapsed / this.burnoutTime, 1);
                 const barW = 40;
@@ -1537,6 +1733,13 @@ class CodexionSim {
                 ctx.fillRect(bx, by, barW, barH);
                 ctx.fillStyle = pct > 0.7 ? '#f85149' : (pct > 0.4 ? '#d29922' : '#3fb950');
                 ctx.fillRect(bx, by, barW * pct, barH);
+                ctx.fillStyle = COLORS.text;
+                ctx.font = '9px monospace';
+                ctx.fillText(c.compileCount + '/' + this.compilesRequired, c.x, by + 14);
+            } else if (c.done) {
+                ctx.fillStyle = '#3fb950';
+                ctx.font = '9px monospace';
+                ctx.fillText(c.compileCount + '/' + this.compilesRequired + ' \u2713', c.x, c.y + r + 24);
             }
         }
 
@@ -1590,14 +1793,46 @@ window.simSetScheduler = function(val) {
     if (sim) sim.scheduler = val;
 };
 
-// Initial draw
+window.simUpdateParam = function() {
+    const ids = ['numCoders','burnout','cooldown','compileTime','debugTime','refactorTime','required','simSpeed'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        const label = document.getElementById(id + 'Val');
+        if (el && label) label.textContent = el.value;
+    });
+    // Live-update the running simulation's speed even without a reset
+    if (sim) sim.speed = parseInt(document.getElementById('simSpeed').value);
+    // Rebuild the "equivalent CLI invocation" preview from the current sliders
+    const n = document.getElementById('numCoders').value;
+    const burn = document.getElementById('burnout').value;
+    const compile = document.getElementById('compileTime').value;
+    const debug = document.getElementById('debugTime').value;
+    const refactor = document.getElementById('refactorTime').value;
+    const required = document.getElementById('required').value;
+    const cooldown = document.getElementById('cooldown').value;
+    const sched = document.getElementById('schedSelect').value;
+    document.getElementById('argPreview').textContent =
+        [n, burn, compile, debug, refactor, required, cooldown, sched].join(' ');
+};
+
+// Keep the CLI preview in sync when the scheduler dropdown changes too
+document.getElementById('schedSelect').addEventListener('change', simUpdateParam);
+
+// Initial sync + draw
+simUpdateParam();
 simReset();
 })();
 </script>
 
 <div class="info-box tip">
 <div class="info-box-title">Try This</div>
-<p>Compare FIFO and EDF with the same parameters. Notice how EDF prioritizes coders closest to burnout, often preventing deaths that FIFO would cause. Increase the number of coders and decrease the burnout time to see the scheduling difference more dramatically.</p>
+<p>Compare FIFO and EDF with the same parameters. Notice how EDF prioritizes coders closest to burnout, often preventing deaths that FIFO would cause. Increase the number of coders and decrease <code>time_to_burnout</code> to see the scheduling difference more dramatically.</p>
+<ul>
+<li>Set <code>time_to_compile + time_to_debug + time_to_refactor</code> close to <code>time_to_burnout</code> — with FIFO you should start seeing burnouts as coders wait too long for their turn; switch to EDF and watch it survive the same parameters.</li>
+<li>Push <code>dongle_cooldown</code> up: even after a coder releases its dongles, neighbours can't immediately grab them, which increases contention and can trigger burnout even with EDF if pushed too far.</li>
+<li>Lower <code>compiles_required</code> to 1 to watch a "sprint" where coders race to finish once; raise it to 15-20 to observe long-run fairness between FIFO and EDF.</li>
+<li>The <strong>Coders done</strong> counter mirrors exactly the condition your real <code>coder_routine()</code> checks (<code>compile_count &gt;= compiles_required</code>) before breaking out of its loop — when it reaches N/N with zero burnouts, that's the equivalent of your binary exiting 0.</li>
+</ul>
 </div>
 </section>
 
